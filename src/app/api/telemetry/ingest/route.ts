@@ -50,7 +50,11 @@ export async function POST(req: Request) {
       );
     }
     const message = (err as Error).message;
-    if (message.includes("FUTURE_TIMESTAMP_REJECTED")) {
+    if (
+      message.includes("FUTURE_TIMESTAMP_REJECTED") ||
+      message.includes("SIMULATION_NOT_PERMITTED") ||
+      message.includes("AMBIGUOUS_DEVICE_ASSIGNMENT")
+    ) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
     console.error("Telemetry ingestion error:", err);

@@ -16,10 +16,30 @@ export interface SimulatorRunResult {
   details: string[];
 }
 
+export function isSimulatorEnabled(): boolean {
+  if (process.env.ENABLE_SIMULATOR === "false" || process.env.SIMULATION_ALLOWED === "false") {
+    return false;
+  }
+  if (process.env.NODE_ENV === "production" && process.env.ENABLE_SIMULATOR !== "true") {
+    return false;
+  }
+  return true;
+}
+
+export function assertSimulatorEnabled(): void {
+  if (!isSimulatorEnabled()) {
+    throw new Error(
+      "SIMULATOR_DISABLED: Simulation scenarios are disabled in this environment."
+    );
+  }
+}
+
 export async function runSimulationScenario(
   deviceId: string,
   scenario: SimulatorScenario
 ): Promise<SimulatorRunResult> {
+  assertSimulatorEnabled();
+
   const device = await prisma.device.findUnique({
     where: { deviceIdentifier: deviceId },
     include: {
@@ -37,6 +57,14 @@ export async function runSimulationScenario(
   });
 
   if (!device) throw new Error("SIMULATOR_DEVICE_NOT_FOUND");
+
+  const isSimDevice =
+    device.isSimulated || device.hardwareModel.toUpperCase().includes("SIMULATOR");
+  if (!isSimDevice) {
+    throw new Error(
+      `SIMULATION_TARGET_REJECTED: Device ${deviceId} is an operational hardware device and cannot run simulation scenarios.`
+    );
+  }
 
   let baseSequence = (device.telemetryReadings[0]?.sequence || 0) + 1;
   const shipment = device.shipments[0];

@@ -45,7 +45,7 @@ test("Integration Workflow: Complete End-to-End Operator -> Telemetry -> Alert -
   // 2. Step 1: Provision Vehicle and Device
   const vehicle = await createVehicle({
     organizationId: fleetOrg.id,
-    licensePlate: `TEST-REEFER-${Date.now().toString().slice(-4)}`,
+    licensePlate: `TEST-REEFER-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     makeModel: "Volvo FE Electric Reefer",
     tempCapabilityMin: -25.0,
     tempCapabilityMax: 10.0,
@@ -58,7 +58,8 @@ test("Integration Workflow: Complete End-to-End Operator -> Telemetry -> Alert -
   const { device, plainApiKey } = await provisionDevice({
     organizationId: fleetOrg.id,
     deviceIdentifier,
-    hardwareModel: "ANNAPURNA-EDGE-S3",
+    hardwareModel: "ANNAPURNA-SIMULATOR",
+    isSimulated: true,
     actorId: operator.id,
     actorEmail: operator.email,
   });

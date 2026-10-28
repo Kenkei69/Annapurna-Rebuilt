@@ -171,6 +171,7 @@ model Device {
   hardwareModel    String       @default("ANNAPURNA-EDGE-S3")
   apiKeyHash       String
   status           DeviceStatus @default(ACTIVE)
+  isSimulated      Boolean      @default(false)
   lastSeenAt       DateTime?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
@@ -262,6 +263,7 @@ model Alert {
   resolvedById        String?
   resolvedAt          DateTime?
   resolutionNotes     String?
+  escalatedFromId     String?
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
 
@@ -269,10 +271,13 @@ model Alert {
   shipment       Shipment     @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
   acknowledgedBy User?        @relation("AcknowledgedAlerts", fields: [acknowledgedById], references: [id], onDelete: SetNull)
   resolvedBy     User?        @relation("ResolvedAlerts", fields: [resolvedById], references: [id], onDelete: SetNull)
+  escalatedFrom  Alert?       @relation("AlertEscalation", fields: [escalatedFromId], references: [id], onDelete: SetNull)
+  escalations    Alert[]      @relation("AlertEscalation")
 
   @@index([organizationId])
   @@index([shipmentId])
   @@index([status])
+  @@index([escalatedFromId])
 }
 
 model RescueOpportunity {

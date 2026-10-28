@@ -3,7 +3,7 @@ import { PrismaClient } from "@prisma/client";
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 export function getDatabaseUrl(): string {
-  const url = process.env.DATABASE_URL || process.env.ANNAPURNA_DATABASE_URL;
+  const url = process.env.ANNAPURNA_DATABASE_URL || process.env.DATABASE_URL;
   if (!url || url.trim().length === 0) {
     throw new Error(
       "FATAL_DB_CONFIG: DATABASE_URL environment variable is required and must not be empty."

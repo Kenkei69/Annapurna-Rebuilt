@@ -42,31 +42,51 @@ export async function ingestTelemetryReading(payload: TelemetryPayload) {
   // Find device
   const device = await prisma.device.findUnique({
     where: { deviceIdentifier: payload.deviceId },
-    include: {
-      shipments: {
-        where: {
-          status: {
-            in: [
-              ShipmentStatus.DISPATCHED,
-              ShipmentStatus.IN_TRANSIT,
-              ShipmentStatus.ALERTED,
-              ShipmentStatus.RESCUE_PENDING,
-            ],
-          },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 1,
-      },
-    },
   });
 
   if (!device) {
     throw new Error("DEVICE_NOT_FOUND");
   }
 
-  const activeShipment = device.shipments[0] || null;
+  if (device.status !== "ACTIVE") {
+    throw new Error("DEVICE_NOT_ACTIVE: Device is revoked, decommissioned, or suspended");
+  }
 
-  // Deduplication check
+  // Check simulation boundary: operational devices cannot accept simulated telemetry
+  const isDeviceSimulated =
+    device.isSimulated || device.hardwareModel.toUpperCase().includes("SIMULATOR");
+  if (payload.isSimulated && !isDeviceSimulated) {
+    throw new Error(
+      "SIMULATION_NOT_PERMITTED: Cannot ingest simulated telemetry into an operational hardware device."
+    );
+  }
+
+  // Ambiguity check: verify device is not assigned to multiple active shipments concurrently
+  const activeShipments = await prisma.shipment.findMany({
+    where: {
+      assignedDeviceId: device.id,
+      status: {
+        in: [
+          ShipmentStatus.DISPATCHED,
+          ShipmentStatus.IN_TRANSIT,
+          ShipmentStatus.ALERTED,
+          ShipmentStatus.RESCUE_PENDING,
+        ],
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 2,
+  });
+
+  if (activeShipments.length > 1) {
+    throw new Error(
+      `AMBIGUOUS_DEVICE_ASSIGNMENT: Device ${device.deviceIdentifier} is concurrently assigned to multiple active shipments (${activeShipments.map((s) => s.trackingNumber).join(", ")}). Ingestion halted.`
+    );
+  }
+
+  const activeShipment = activeShipments[0] || null;
+
+  // Deduplication check (fast-path pre-check)
   const existing = await prisma.telemetryReading.findUnique({
     where: {
       deviceId_sequence: {
@@ -86,63 +106,95 @@ export async function ingestTelemetryReading(payload: TelemetryPayload) {
     };
   }
 
-  // Record reading in transaction
-  const result = await prisma.$transaction(async (tx) => {
-    const reading = await tx.telemetryReading.create({
-      data: {
-        deviceId: device.id,
-        shipmentId: activeShipment?.id ?? null,
-        sequence: payload.sequence,
-        recordedAt: recordedDate,
-        temperature: payload.temperature,
-        humidity: payload.humidity ?? null,
-        latitude: payload.latitude ?? null,
-        longitude: payload.longitude ?? null,
-        batteryPct: payload.batteryPct ?? null,
-        isSimulated: payload.isSimulated,
-      },
-    });
-
-    // Update device lastSeenAt
-    await tx.device.update({
-      where: { id: device.id },
-      data: { lastSeenAt: now },
-    });
-
-    // Update shipment telemetry & transition to IN_TRANSIT if currently DISPATCHED
-    if (activeShipment) {
-      const nextStatus =
-        activeShipment.status === ShipmentStatus.DISPATCHED
-          ? ShipmentStatus.IN_TRANSIT
-          : undefined;
-
-      await tx.shipment.update({
-        where: { id: activeShipment.id },
+  // Record reading and evaluate alerts atomically in a single transaction
+  try {
+    const { reading, triggeredAlerts } = await prisma.$transaction(async (tx) => {
+      const createdReading = await tx.telemetryReading.create({
         data: {
-          latestTemperature: payload.temperature,
-          latestHumidity: payload.humidity ?? activeShipment.latestHumidity,
-          latestLat: payload.latitude ?? activeShipment.latestLat,
-          latestLng: payload.longitude ?? activeShipment.latestLng,
-          latestRecordedAt: recordedDate,
-          ...(nextStatus ? { status: nextStatus } : {}),
+          deviceId: device.id,
+          shipmentId: activeShipment?.id ?? null,
+          sequence: payload.sequence,
+          recordedAt: recordedDate,
+          temperature: payload.temperature,
+          humidity: payload.humidity ?? null,
+          latitude: payload.latitude ?? null,
+          longitude: payload.longitude ?? null,
+          batteryPct: payload.batteryPct ?? null,
+          isSimulated: payload.isSimulated,
         },
       });
+
+      // Update device lastSeenAt
+      await tx.device.update({
+        where: { id: device.id },
+        data: { lastSeenAt: now },
+      });
+
+      // Handle shipment update with out-of-order and status protection
+      if (activeShipment) {
+        const isStale =
+          activeShipment.latestRecordedAt !== null &&
+          recordedDate < activeShipment.latestRecordedAt;
+
+        // Ingested readings must not overwrite newer latestRecordedAt timestamps
+        // or revert terminal/advanced shipment states
+        if (!isStale) {
+          const nextStatus =
+            activeShipment.status === ShipmentStatus.DISPATCHED
+              ? ShipmentStatus.IN_TRANSIT
+              : undefined;
+
+          await tx.shipment.update({
+            where: { id: activeShipment.id },
+            data: {
+              latestTemperature: payload.temperature,
+              latestHumidity: payload.humidity ?? activeShipment.latestHumidity,
+              latestLat: payload.latitude ?? activeShipment.latestLat,
+              latestLng: payload.longitude ?? activeShipment.latestLng,
+              latestRecordedAt: recordedDate,
+              ...(nextStatus ? { status: nextStatus } : {}),
+            },
+          });
+        }
+      }
+
+      // Evaluate alerts within the transaction
+      let alerts: unknown[] = [];
+      if (activeShipment) {
+        alerts = await evaluateTelemetryAlerts(activeShipment.id, createdReading, tx);
+      }
+
+      return { reading: createdReading, triggeredAlerts: alerts };
+    });
+
+    return {
+      status: "accepted" as const,
+      readingId: reading.id,
+      shipmentId: activeShipment?.id ?? null,
+      triggeredAlertsCount: triggeredAlerts.length,
+      deduplicated: false,
+    };
+  } catch (err: unknown) {
+    // If concurrent insert created the same sequence, catch Prisma P2002 unique constraint violation
+    if ((err as { code?: string })?.code === "P2002") {
+      const deduplicatedReading = await prisma.telemetryReading.findUnique({
+        where: {
+          deviceId_sequence: {
+            deviceId: device.id,
+            sequence: payload.sequence,
+          },
+        },
+      });
+      if (deduplicatedReading) {
+        return {
+          status: "duplicate_ignored" as const,
+          readingId: deduplicatedReading.id,
+          deduplicated: true,
+          shipmentId: deduplicatedReading.shipmentId,
+          triggeredAlertsCount: 0,
+        };
+      }
     }
-
-    return reading;
-  });
-
-  // Evaluate alerts if reading belongs to an active shipment
-  let triggeredAlerts: unknown[] = [];
-  if (activeShipment) {
-    triggeredAlerts = await evaluateTelemetryAlerts(activeShipment.id, result);
+    throw err;
   }
-
-  return {
-    status: "accepted",
-    readingId: result.id,
-    shipmentId: activeShipment?.id ?? null,
-    triggeredAlertsCount: triggeredAlerts.length,
-    deduplicated: false,
-  };
 }
