@@ -45,7 +45,7 @@ test("Auth Module - Production secret configuration enforcement", () => {
   const originalSecret = process.env.SESSION_SECRET;
 
   try {
-    process.env.NODE_ENV = "production";
+    (process.env as Record<string, string | undefined>).NODE_ENV = "production";
     process.env.SESSION_SECRET = "";
 
     // In production, missing or short secret must throw fatal error
@@ -63,7 +63,7 @@ test("Auth Module - Production secret configuration enforcement", () => {
     process.env.SESSION_SECRET = "a_sufficiently_strong_production_secret_32_chars_ok!";
     assert.doesNotThrow(() => getSessionSecret());
   } finally {
-    process.env.NODE_ENV = originalEnv;
+    (process.env as Record<string, string | undefined>).NODE_ENV = originalEnv;
     process.env.SESSION_SECRET = originalSecret;
   }
 });

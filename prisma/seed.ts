@@ -377,7 +377,11 @@ async function main() {
 
   await prisma.rescuePartnerProfile.upsert({
     where: { organizationId: partnerOrg.id },
-    update: {},
+    update: {
+      onboardingComplete: true,
+      verificationStatus: "SELF_REPORTED_VERIFIED_LOCATION",
+      isActive: true,
+    },
     create: {
       organizationId: partnerOrg.id,
       facilityName: "Sahyadri Lonavala Cold Terminal",
