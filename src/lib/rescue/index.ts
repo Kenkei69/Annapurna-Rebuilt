@@ -144,7 +144,22 @@ export async function submitRescueOffer(params: {
   );
 
   return prisma.$transaction(async (tx) => {
-    // 1. Verify Partner Facility Onboarding
+    // 1. Verify Partner Facility Onboarding and Membership
+    const partnerMembership = await tx.membership.findUnique({
+      where: {
+        userId_organizationId: {
+          userId: params.submittedById,
+          organizationId: params.partnerOrgId,
+        },
+      },
+    });
+
+    if (!partnerMembership) {
+      throw new ForbiddenError(
+        "UNAUTHORIZED_PARTNER_MEMBERSHIP: Submitting user is not an active member of the designated partner organization."
+      );
+    }
+
     const partnerProfile = await tx.rescuePartnerProfile.findUnique({
       where: { organizationId: params.partnerOrgId },
     });
@@ -258,9 +273,12 @@ export async function acceptRescueOffer(params: {
         acceptedOfferId: string | null;
         organizationId: string;
         shipmentId: string;
+        cargoWeightKg: number;
+        tempRequirementMin: number;
+        tempRequirementMax: number;
       }>
     >`
-      SELECT "id", "status", "acceptedOfferId", "organizationId", "shipmentId"
+      SELECT "id", "status", "acceptedOfferId", "organizationId", "shipmentId", "cargoWeightKg", "tempRequirementMin", "tempRequirementMax"
       FROM "RescueOpportunity"
       WHERE "id" = ${params.opportunityId}
       FOR UPDATE
@@ -319,9 +337,9 @@ export async function acceptRescueOffer(params: {
       );
     }
 
-    // Expiry Check at acceptance time
+    // Expiry Check at acceptance time: persist expired status cleanly without rollback
     if (offer.validUntil <= new Date()) {
-      await tx.rescueOffer.update({
+      await prisma.rescueOffer.update({
         where: { id: offer.id },
         data: { status: OfferStatus.EXPIRED },
       });
@@ -340,6 +358,27 @@ export async function acceptRescueOffer(params: {
       throw new ForbiddenError(
         "PARTNER_NOT_ONBOARDED: Offering partner facility has not completed verified onboarding."
       );
+    }
+
+    // Suitability Validation: Capacity & Temperature Envelopes
+    if (offer.capacityOfferedKg < oppRow.cargoWeightKg) {
+      throw new ValidationError(
+        `INSUFFICIENT_CAPACITY: Offered capacity (${offer.capacityOfferedKg} kg) cannot accommodate cargo weight (${oppRow.cargoWeightKg} kg).`
+      );
+    }
+
+    if (
+      partnerProfile.tempRangeMin !== null &&
+      partnerProfile.tempRangeMax !== null
+    ) {
+      if (
+        partnerProfile.tempRangeMin > oppRow.tempRequirementMin ||
+        partnerProfile.tempRangeMax < oppRow.tempRequirementMax
+      ) {
+        throw new ValidationError(
+          `INCOMPATIBLE_TEMPERATURE_CAPABILITY: Partner facility range [${partnerProfile.tempRangeMin}°C, ${partnerProfile.tempRangeMax}°C] cannot maintain required cargo range [${oppRow.tempRequirementMin}°C, ${oppRow.tempRequirementMax}°C].`
+        );
+      }
     }
 
     // 5. Atomic State Transitions
@@ -420,6 +459,25 @@ export async function recordRescueMilestone(params: {
   }
 
   return prisma.$transaction(async (tx) => {
+    // Acquire row-level lock on opportunity to prevent racing milestone/completion updates
+    const [oppRow] = await tx.$queryRaw<
+      Array<{
+        id: string;
+        status: string;
+        organizationId: string;
+        shipmentId: string;
+      }>
+    >`
+      SELECT "id", "status", "organizationId", "shipmentId"
+      FROM "RescueOpportunity"
+      WHERE "id" = ${params.opportunityId}
+      FOR UPDATE
+    `;
+
+    if (!oppRow) {
+      throw new NotFoundError("RESCUE_OPPORTUNITY_NOT_FOUND");
+    }
+
     const opp = await tx.rescueOpportunity.findUnique({
       where: { id: params.opportunityId },
       include: {
@@ -555,25 +613,31 @@ export async function completeRescue(params: {
       );
     }
 
+    // Validate and transition shipment atomically
+    const shipment = await tx.shipment.findUnique({
+      where: { id: opp.shipmentId },
+    });
+    if (!shipment) {
+      throw new NotFoundError("SHIPMENT_NOT_FOUND");
+    }
+
+    if (!canTransitionShipment(shipment.status, ShipmentStatus.RESCUED)) {
+      throw new ConflictError(
+        `INVALID_SHIPMENT_TRANSITION: Cannot transition shipment from status '${shipment.status}' to RESCUED.`
+      );
+    }
+
     // Transition opportunity to COMPLETED
     const completedOpp = await tx.rescueOpportunity.update({
       where: { id: params.opportunityId },
       data: { status: RescueStatus.COMPLETED },
     });
 
-    // Transition shipment to RESCUED
-    const shipment = await tx.shipment.findUnique({
+    // Atomically transition shipment to RESCUED
+    await tx.shipment.update({
       where: { id: opp.shipmentId },
+      data: { status: ShipmentStatus.RESCUED },
     });
-    if (
-      shipment &&
-      canTransitionShipment(shipment.status, ShipmentStatus.RESCUED)
-    ) {
-      await tx.shipment.update({
-        where: { id: opp.shipmentId },
-        data: { status: ShipmentStatus.RESCUED },
-      });
-    }
 
     // Add final milestone
     await tx.rescueMilestone.create({
