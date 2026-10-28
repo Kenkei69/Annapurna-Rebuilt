@@ -37,10 +37,14 @@ npm install
 
 ---
 
-## 3. Database Migration & Schema Push
-Synchronize the PostgreSQL schema:
+## 3. Versioned Database Migrations
+Deploy committed Prisma migrations to PostgreSQL:
 ```bash
-npm run db:push
+npm run db:migrate:deploy
+```
+Check migration status:
+```bash
+npm run db:migrate:status
 ```
 Generate the Prisma typed client:
 ```bash
@@ -49,11 +53,21 @@ npm run db:generate
 
 ---
 
-## 4. Database Seeding
-Seed the database with pre-configured personas, edge devices, reefer vehicles, and initial telemetry data:
+## 4. Database Seeding & Initialization
+
+### 4.1 Non-Destructive Essential Initialization (Safe for any environment)
+To initialize required system structures and administrator tenant without erasing records:
+```bash
+npm run db:init:essential
+```
+
+### 4.2 Development Demo Seeding (Development only)
+In isolated development environments, seed test personas, vehicles, and initial telemetry data idempotently using upserts:
 ```bash
 npm run db:seed
 ```
+
+> **Database Safety Notice:** Destructive reset (`npm run db:reset:demo`) requires `ALLOW_DESTRUCTIVE_RESET=true` and is strictly prohibited in production environments or against remote production hosts. Normal initialization is non-destructive and preserves existing users, shipments, telemetry, and audit history.
 
 ### Seed Personas Available:
 | Role | Email | Password | Organization | Description |

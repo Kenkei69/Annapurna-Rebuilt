@@ -16,7 +16,6 @@ import {
   Menu,
   X,
   Building2,
-  UserCheck,
 } from "lucide-react";
 
 interface AppShellProps {

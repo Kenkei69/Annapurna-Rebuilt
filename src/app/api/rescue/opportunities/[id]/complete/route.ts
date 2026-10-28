@@ -4,6 +4,7 @@ import { requireAuth } from "@/lib/auth";
 import { completeRescue } from "@/lib/rescue";
 import { prisma } from "@/lib/db";
 import { assertOrgAccess } from "@/lib/org";
+import { AppError } from "@/lib/errors";
 
 const CompleteSchema = z.object({
   outcomeNotes: z.string().min(5),
@@ -40,7 +41,10 @@ export async function POST(
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: "Validation failed", details: err.errors }, { status: 400 });
     }
+    if (err instanceof AppError) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: err.statusCode });
+    }
     console.error("Complete rescue error:", err);
-    return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }

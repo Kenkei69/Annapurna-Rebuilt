@@ -79,6 +79,7 @@ test("Cargo Rescue Concurrency - Single accepted offer guarantees mutual exclusi
     offerId: offer1.id,
     actorId: operator.id,
   });
+  assert.ok(result1.offer);
   assert.equal(result1.offer.status, OfferStatus.ACCEPTED);
   assert.equal(result1.opportunity.status, RescueStatus.ACCEPTED);
 

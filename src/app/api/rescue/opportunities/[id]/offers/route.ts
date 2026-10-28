@@ -4,6 +4,7 @@ import { requireAuth } from "@/lib/auth";
 import { submitRescueOffer } from "@/lib/rescue";
 import { getUserPrimaryOrg } from "@/lib/org";
 import { UserRole } from "@prisma/client";
+import { AppError } from "@/lib/errors";
 
 const SubmitOfferSchema = z.object({
   offerAmount: z.number().positive(),
@@ -48,7 +49,10 @@ export async function POST(
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: "Validation failed", details: err.errors }, { status: 400 });
     }
+    if (err instanceof AppError) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: err.statusCode });
+    }
     console.error("Submit offer error:", err);
-    return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }

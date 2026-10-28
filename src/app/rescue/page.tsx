@@ -12,6 +12,13 @@ export default async function RescuePage() {
   const orgId = user.memberships[0]?.organizationId;
   const isPartner = user.memberships[0]?.organization?.type === "RESCUE_PARTNER";
 
+  const partnerProfile =
+    isPartner && orgId
+      ? await prisma.rescuePartnerProfile.findUnique({
+          where: { organizationId: orgId },
+        })
+      : null;
+
   // If partner, fetch all open/offered/accepted opportunities
   // If fleet operator, fetch their organization's opportunities
   // If admin, fetch all
@@ -50,6 +57,7 @@ export default async function RescuePage() {
         userRole={user.role}
         userOrgId={orgId || ""}
         isPartner={isPartner}
+        partnerProfile={partnerProfile}
       />
     </AppShell>
   );

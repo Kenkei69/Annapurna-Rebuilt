@@ -142,7 +142,7 @@ export async function runSimulationScenario(
   } else if (scenario === "REPLAY_DUPLICATE") {
     // First legitimate reading
     const legitimateSeq = baseSequence++;
-    const res1 = await ingestTelemetryReading({
+    await ingestTelemetryReading({
       deviceId: device.deviceIdentifier,
       sequence: legitimateSeq,
       recordedAt: new Date(now - 10000).toISOString(),

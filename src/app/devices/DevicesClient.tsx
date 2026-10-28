@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { Cpu, PlusCircle, Copy, Check, ShieldAlert, KeyRound, Radio } from "lucide-react";
+import { PlusCircle, Copy, Check, KeyRound } from "lucide-react";
 
 interface DevicesClientProps {
   devices: any[];

@@ -191,6 +191,7 @@ test("Integration Workflow: Complete End-to-End Operator -> Telemetry -> Alert -
     actorId: operator.id,
     actorEmail: operator.email,
   });
+  assert.ok(acceptResult.offer);
   assert.equal(acceptResult.offer.status, OfferStatus.ACCEPTED);
   assert.equal(acceptResult.opportunity.status, RescueStatus.ACCEPTED);
   assert.equal(acceptResult.opportunity.acceptedOfferId, winningOffer.id);

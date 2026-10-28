@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { Truck, PlusCircle, Thermometer, CheckCircle2 } from "lucide-react";
+import { PlusCircle } from "lucide-react";
 
 interface FleetClientProps {
   vehicles: any[];

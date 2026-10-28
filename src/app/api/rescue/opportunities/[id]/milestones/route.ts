@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
 import { recordRescueMilestone } from "@/lib/rescue";
 import { prisma } from "@/lib/db";
+import { AppError } from "@/lib/errors";
 
 const MilestoneSchema = z.object({
   milestoneType: z.string().min(2),
@@ -38,7 +39,10 @@ export async function POST(
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: "Validation failed", details: err.errors }, { status: 400 });
     }
+    if (err instanceof AppError) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: err.statusCode });
+    }
     console.error("Record milestone error:", err);
-    return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }

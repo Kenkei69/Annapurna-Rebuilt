@@ -1,11 +1,11 @@
 import React from "react";
 import { redirect } from "next/navigation";
-import { getCurrentUser, requireRole } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { AppShell } from "@/components/layout/AppShell";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { Shield, Building2, Users, Cpu, Database, Activity, Lock } from "lucide-react";
+import { Building2, Users, Cpu, Activity, Lock } from "lucide-react";
 import { UserRole } from "@prisma/client";
 
 export default async function AdminPage() {
@@ -29,7 +29,6 @@ export default async function AdminPage() {
   const totalUsers = await prisma.user.count();
   const totalDevices = await prisma.device.count();
   const totalTelemetry = await prisma.telemetryReading.count();
-  const totalAudit = await prisma.auditEvent.count();
 
   return (
     <AppShell

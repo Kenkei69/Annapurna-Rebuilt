@@ -2,17 +2,22 @@ import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-const databaseUrl =
-  process.env.ANNAPURNA_DATABASE_URL ||
-  process.env.DATABASE_URL?.replace("/heliumdb", "/annapurna_db") ||
-  "postgresql://postgres:password@helium/annapurna_db?sslmode=disable";
+export function getDatabaseUrl(): string {
+  const url = process.env.DATABASE_URL || process.env.ANNAPURNA_DATABASE_URL;
+  if (!url || url.trim().length === 0) {
+    throw new Error(
+      "FATAL_DB_CONFIG: DATABASE_URL environment variable is required and must not be empty."
+    );
+  }
+  return url.trim();
+}
 
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
     datasources: {
       db: {
-        url: databaseUrl,
+        url: getDatabaseUrl(),
       },
     },
     log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],

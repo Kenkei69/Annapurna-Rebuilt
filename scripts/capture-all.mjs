@@ -11,20 +11,34 @@ fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
 async function main() {
   console.log("📸 Starting Automated Screenshot Capture via CDP...");
 
-  // 1. Obtain session cookie
-  const loginRes = await fetch("http://localhost:3000/api/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      email: "operator@transcold.com",
-      password: "Operator123!",
-    }),
-  });
+    // 1. Obtain operator session cookie
+    const loginRes = await fetch("http://localhost:3000/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "operator@transcold.com",
+        password: "Operator123!",
+      }),
+    });
 
-  const setCookieHeader = loginRes.headers.get("set-cookie") || "";
-  const cookieMatch = setCookieHeader.match(/annapurna_session=([^;]+)/);
-  const cookieValue = cookieMatch ? cookieMatch[1] : "";
-  console.log("🔑 Session cookie obtained:", cookieValue ? "Valid" : "Missing");
+    const setCookieHeader = loginRes.headers.get("set-cookie") || "";
+    const cookieMatch = setCookieHeader.match(/annapurna_session=([^;]+)/);
+    const cookieValue = cookieMatch ? cookieMatch[1] : "";
+    console.log("🔑 Operator session cookie obtained:", cookieValue ? "Valid" : "Missing");
+
+    // Obtain partner session cookie
+    const partnerLoginRes = await fetch("http://localhost:3000/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "director@sahyadricold.com",
+        password: "Partner123!",
+      }),
+    });
+    const partnerCookieHeader = partnerLoginRes.headers.get("set-cookie") || "";
+    const partnerCookieMatch = partnerCookieHeader.match(/annapurna_session=([^;]+)/);
+    const partnerCookieValue = partnerCookieMatch ? partnerCookieMatch[1] : "";
+    console.log("🔑 Partner session cookie obtained:", partnerCookieValue ? "Valid" : "Missing");
 
   // 2. Launch headless Chromium with remote debugging
   const chrome = spawn("/repl/tools/bin/chromium", [
@@ -119,12 +133,31 @@ async function main() {
       { name: "shipments-desktop", url: "http://localhost:3000/shipments", width: 1440, height: 900 },
       { name: "alerts-desktop", url: "http://localhost:3000/alerts", width: 1440, height: 900 },
       { name: "rescue-desktop", url: "http://localhost:3000/rescue", width: 1440, height: 900 },
+      { name: "rescue-partner-desktop", url: "http://localhost:3000/rescue", width: 1440, height: 900, cookie: partnerCookieValue },
       { name: "simulator-desktop", url: "http://localhost:3000/simulator", width: 1440, height: 900 },
       { name: "audit-desktop", url: "http://localhost:3000/audit", width: 1440, height: 900 },
     ];
 
     for (const p of pages) {
       console.log(`📸 Capturing ${p.name} (${p.width}x${p.height})...`);
+      if (p.cookie) {
+        await pageSend("Network.setCookie", {
+          name: "annapurna_session",
+          value: p.cookie,
+          domain: "localhost",
+          path: "/",
+          httpOnly: true,
+        });
+      } else if (cookieValue) {
+        await pageSend("Network.setCookie", {
+          name: "annapurna_session",
+          value: cookieValue,
+          domain: "localhost",
+          path: "/",
+          httpOnly: true,
+        });
+      }
+
       await pageSend("Emulation.setDeviceMetricsOverride", {
         width: p.width,
         height: p.height,

@@ -1,42 +1,47 @@
-import { PrismaClient, UserRole, OrgType, OrgMemberRole, VehicleStatus, DeviceStatus, ShipmentStatus, AlertSeverity, AlertStatus, FacilityType } from "@prisma/client";
+import {
+  PrismaClient,
+  UserRole,
+  OrgType,
+  OrgMemberRole,
+  VehicleStatus,
+  DeviceStatus,
+  ShipmentStatus,
+  AlertSeverity,
+  AlertStatus,
+  FacilityType,
+} from "@prisma/client";
 import { hashPassword } from "../src/lib/auth";
 import { hashDeviceApiKey } from "../src/lib/fleet";
+import { getDatabaseUrl } from "../src/lib/db";
 
 const prisma = new PrismaClient({
   datasources: {
     db: {
-      url: process.env.ANNAPURNA_DATABASE_URL || process.env.DATABASE_URL?.replace("/heliumdb", "/annapurna_db") || "postgresql://postgres:password@helium/annapurna_db?sslmode=disable",
+      url: getDatabaseUrl(),
     },
   },
 });
 
 async function main() {
-  console.log("🌱 Starting Annapurna Rebuilt Seed...");
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "FATAL_SEED_GUARD: Demo fixture seeding is forbidden in production. Use scripts/provision-admin.ts for production setup."
+    );
+  }
 
-  // 1. Clean existing records in annapurna_db
-  await prisma.auditEvent.deleteMany();
-  await prisma.rescueMilestone.deleteMany();
-  await prisma.rescueOffer.deleteMany();
-  await prisma.rescueOpportunity.deleteMany();
-  await prisma.rescuePartnerProfile.deleteMany();
-  await prisma.alert.deleteMany();
-  await prisma.telemetryReading.deleteMany();
-  await prisma.shipment.deleteMany();
-  await prisma.device.deleteMany();
-  await prisma.vehicle.deleteMany();
-  await prisma.membership.deleteMany();
-  await prisma.organization.deleteMany();
-  await prisma.user.deleteMany();
+  console.log("🌱 Running idempotent demo seed...");
 
-  // 2. Passwords
+  // Passwords
   const adminPass = await hashPassword("AdminPass123!");
   const operatorPass = await hashPassword("Operator123!");
   const driverPass = await hashPassword("Driver123!");
   const partnerPass = await hashPassword("Partner123!");
 
-  // 3. Platform Admin
-  const admin = await prisma.user.create({
-    data: {
+  // 1. Platform Admin
+  const admin = await prisma.user.upsert({
+    where: { email: "admin@annapurna.local" },
+    update: {},
+    create: {
       email: "admin@annapurna.local",
       name: "Platform Administrator",
       passwordHash: adminPass,
@@ -44,23 +49,36 @@ async function main() {
     },
   });
 
-  const adminOrg = await prisma.organization.create({
-    data: {
+  const adminOrg = await prisma.organization.upsert({
+    where: { slug: "system-ops" },
+    update: {},
+    create: {
       name: "Annapurna System Operations",
       slug: "system-ops",
       type: OrgType.ADMINISTRATIVE,
-      memberships: {
-        create: {
-          userId: admin.id,
-          orgRole: OrgMemberRole.OWNER,
-        },
-      },
     },
   });
 
-  // 4. Primary Fleet Organization (TransCold Express)
-  const operator = await prisma.user.create({
-    data: {
+  await prisma.membership.upsert({
+    where: {
+      userId_organizationId: {
+        userId: admin.id,
+        organizationId: adminOrg.id,
+      },
+    },
+    update: {},
+    create: {
+      userId: admin.id,
+      organizationId: adminOrg.id,
+      orgRole: OrgMemberRole.OWNER,
+    },
+  });
+
+  // 2. Primary Fleet Organization (TransCold Express)
+  const operator = await prisma.user.upsert({
+    where: { email: "operator@transcold.com" },
+    update: {},
+    create: {
       email: "operator@transcold.com",
       name: "Vikram Malhotra",
       passwordHash: operatorPass,
@@ -68,8 +86,10 @@ async function main() {
     },
   });
 
-  const driver = await prisma.user.create({
-    data: {
+  const driver = await prisma.user.upsert({
+    where: { email: "driver.raj@transcold.com" },
+    update: {},
+    create: {
       email: "driver.raj@transcold.com",
       name: "Rajesh Kumar",
       passwordHash: driverPass,
@@ -77,25 +97,56 @@ async function main() {
     },
   });
 
-  const fleetOrg = await prisma.organization.create({
-    data: {
+  const fleetOrg = await prisma.organization.upsert({
+    where: { slug: "transcold-express" },
+    update: {},
+    create: {
       name: "TransCold Express Logistics",
       slug: "transcold-express",
       type: OrgType.FLEET,
-      memberships: {
-        createMany: {
-          data: [
-            { userId: operator.id, orgRole: OrgMemberRole.OWNER },
-            { userId: driver.id, orgRole: OrgMemberRole.DRIVER },
-          ],
-        },
-      },
     },
   });
 
-  // 5. Fleet Vehicles
-  const vehicle1 = await prisma.vehicle.create({
-    data: {
+  await prisma.membership.upsert({
+    where: {
+      userId_organizationId: {
+        userId: operator.id,
+        organizationId: fleetOrg.id,
+      },
+    },
+    update: {},
+    create: {
+      userId: operator.id,
+      organizationId: fleetOrg.id,
+      orgRole: OrgMemberRole.OWNER,
+    },
+  });
+
+  await prisma.membership.upsert({
+    where: {
+      userId_organizationId: {
+        userId: driver.id,
+        organizationId: fleetOrg.id,
+      },
+    },
+    update: {},
+    create: {
+      userId: driver.id,
+      organizationId: fleetOrg.id,
+      orgRole: OrgMemberRole.DRIVER,
+    },
+  });
+
+  // 3. Fleet Vehicles
+  const vehicle1 = await prisma.vehicle.upsert({
+    where: {
+      organizationId_licensePlate: {
+        organizationId: fleetOrg.id,
+        licensePlate: "MH-04-AB-1234",
+      },
+    },
+    update: {},
+    create: {
       organizationId: fleetOrg.id,
       licensePlate: "MH-04-AB-1234",
       makeModel: "Tata Prima 2830.K Reefer",
@@ -106,8 +157,15 @@ async function main() {
     },
   });
 
-  const vehicle2 = await prisma.vehicle.create({
-    data: {
+  const vehicle2 = await prisma.vehicle.upsert({
+    where: {
+      organizationId_licensePlate: {
+        organizationId: fleetOrg.id,
+        licensePlate: "DL-01-XY-5678",
+      },
+    },
+    update: {},
+    create: {
       organizationId: fleetOrg.id,
       licensePlate: "DL-01-XY-5678",
       makeModel: "Ashok Leyland 1618 Reefer",
@@ -118,12 +176,14 @@ async function main() {
     },
   });
 
-  // 6. Edge Devices
+  // 4. Edge Devices
   const deviceKey1 = "dev_key_apn_secret_seed_key_001";
   const deviceKey2 = "dev_key_apn_secret_seed_key_002";
 
-  const device1 = await prisma.device.create({
-    data: {
+  const device1 = await prisma.device.upsert({
+    where: { deviceIdentifier: "DEVICE-APN-001" },
+    update: {},
+    create: {
       organizationId: fleetOrg.id,
       deviceIdentifier: "DEVICE-APN-001",
       hardwareModel: "ANNAPURNA-EDGE-S3",
@@ -133,8 +193,10 @@ async function main() {
     },
   });
 
-  const device2 = await prisma.device.create({
-    data: {
+  const device2 = await prisma.device.upsert({
+    where: { deviceIdentifier: "DEVICE-APN-002" },
+    update: {},
+    create: {
       organizationId: fleetOrg.id,
       deviceIdentifier: "DEVICE-APN-002",
       hardwareModel: "ANNAPURNA-EDGE-S3",
@@ -144,10 +206,11 @@ async function main() {
     },
   });
 
-  // 7. Active Shipments
-  // Shipment 1: Healthy Butter & Paneer in transit
-  const shipment1 = await prisma.shipment.create({
-    data: {
+  // 5. Active Shipments
+  const shipment1 = await prisma.shipment.upsert({
+    where: { trackingNumber: "APN-202610-01" },
+    update: {},
+    create: {
       organizationId: fleetOrg.id,
       trackingNumber: "APN-202610-01",
       title: "Organic Butter & Artisanal Paneer",
@@ -174,27 +237,34 @@ async function main() {
     },
   });
 
-  // Telemetry history for Shipment 1
-  for (let i = 4; i >= 0; i--) {
-    await prisma.telemetryReading.create({
-      data: {
-        shipmentId: shipment1.id,
-        deviceId: device1.id,
-        sequence: 100 - i,
-        recordedAt: new Date(Date.now() - i * 5 * 60000),
-        temperature: 3.2 + (i % 3) * 0.2,
-        humidity: 63.0 + i,
-        latitude: 19.076 + (4 - i) * 0.02,
-        longitude: 72.8777 + (4 - i) * 0.02,
-        batteryPct: 95.0,
-        isSimulated: true,
-      },
-    });
+  // Ensure telemetry for Shipment 1 if not exists
+  const existingReadings1 = await prisma.telemetryReading.count({
+    where: { shipmentId: shipment1.id },
+  });
+  if (existingReadings1 === 0) {
+    for (let i = 4; i >= 0; i--) {
+      await prisma.telemetryReading.create({
+        data: {
+          shipmentId: shipment1.id,
+          deviceId: device1.id,
+          sequence: 100 - i,
+          recordedAt: new Date(Date.now() - i * 5 * 60000),
+          temperature: 3.2 + (i % 3) * 0.2,
+          humidity: 63.0 + i,
+          latitude: 19.076 + (4 - i) * 0.02,
+          longitude: 72.8777 + (4 - i) * 0.02,
+          batteryPct: 95.0,
+          isSimulated: true,
+        },
+      });
+    }
   }
 
   // Shipment 2: Distressed Strawberries with Sustained Thermal Breach
-  const shipment2 = await prisma.shipment.create({
-    data: {
+  const shipment2 = await prisma.shipment.upsert({
+    where: { trackingNumber: "APN-202610-02" },
+    update: {},
+    create: {
       organizationId: fleetOrg.id,
       trackingNumber: "APN-202610-02",
       title: "Fresh Mahabaleshwar Grade-A Strawberries",
@@ -220,48 +290,59 @@ async function main() {
     },
   });
 
-  // Telemetry history showing rising breach
-  const breachTemps = [3.8, 4.6, 6.1, 7.5, 8.8];
-  for (let i = 4; i >= 0; i--) {
-    await prisma.telemetryReading.create({
+  const existingReadings2 = await prisma.telemetryReading.count({
+    where: { shipmentId: shipment2.id },
+  });
+  if (existingReadings2 === 0) {
+    const breachTemps = [3.8, 4.6, 6.1, 7.5, 8.8];
+    for (let i = 4; i >= 0; i--) {
+      await prisma.telemetryReading.create({
+        data: {
+          shipmentId: shipment2.id,
+          deviceId: device2.id,
+          sequence: 200 - i,
+          recordedAt: new Date(Date.now() - i * 6 * 60000),
+          temperature: breachTemps[4 - i],
+          humidity: 84.0,
+          latitude: 18.754 + (4 - i) * 0.01,
+          longitude: 73.407 + (4 - i) * 0.01,
+          batteryPct: 88.0,
+          isSimulated: true,
+        },
+      });
+    }
+  }
+
+  // Active Alert on Shipment 2
+  const existingAlert = await prisma.alert.findFirst({
+    where: { shipmentId: shipment2.id, ruleCode: "SUSTAINED_BREACH" },
+  });
+  if (!existingAlert) {
+    await prisma.alert.create({
       data: {
+        organizationId: fleetOrg.id,
         shipmentId: shipment2.id,
-        deviceId: device2.id,
-        sequence: 200 - i,
-        recordedAt: new Date(Date.now() - i * 6 * 60000),
-        temperature: breachTemps[4 - i],
-        humidity: 84.0,
-        latitude: 18.754 + (4 - i) * 0.01,
-        longitude: 73.407 + (4 - i) * 0.01,
-        batteryPct: 88.0,
-        isSimulated: true,
+        ruleCode: "SUSTAINED_BREACH",
+        severity: AlertSeverity.CRITICAL,
+        status: AlertStatus.ACTIVE,
+        summary:
+          "CRITICAL SUSTAINED BREACH: Cargo temperature 8.8°C exceeds upper threshold (4.0°C) for 4 consecutive readings (+4.8°C deviation).",
+        triggerReadingJson: JSON.stringify({
+          temperature: 8.8,
+          recordedAt: new Date(),
+          limit: 4.0,
+        }),
+        recommendedAction:
+          "Immediate reefer compressor check required. Rapid warming detected (+1.2°C / 10m). Initiate Cargo Rescue Opportunity to prevent catastrophic spoilage.",
       },
     });
   }
 
-  // Active Critical Alert on Shipment 2
-  await prisma.alert.create({
-    data: {
-      organizationId: fleetOrg.id,
-      shipmentId: shipment2.id,
-      ruleCode: "SUSTAINED_BREACH",
-      severity: AlertSeverity.CRITICAL,
-      status: AlertStatus.ACTIVE,
-      summary:
-        "CRITICAL SUSTAINED BREACH: Cargo temperature 8.8°C exceeds upper threshold (4.0°C) for 4 consecutive readings (+4.8°C deviation).",
-      triggerReadingJson: JSON.stringify({
-        temperature: 8.8,
-        recordedAt: new Date(),
-        limit: 4.0,
-      }),
-      recommendedAction:
-        "Immediate reefer compressor check required. Rapid warming detected (+1.2°C / 10m). Initiate Cargo Rescue Opportunity to prevent catastrophic spoilage.",
-    },
-  });
-
-  // 8. Rescue Partner Organization & Profile
-  const partnerUser = await prisma.user.create({
-    data: {
+  // 6. Rescue Partner Organization & Profile
+  const partnerUser = await prisma.user.upsert({
+    where: { email: "director@sahyadricold.com" },
+    update: {},
+    create: {
       email: "director@sahyadricold.com",
       name: "Sanjay Deshmukh",
       passwordHash: partnerPass,
@@ -269,22 +350,39 @@ async function main() {
     },
   });
 
-  const partnerOrg = await prisma.organization.create({
-    data: {
+  const partnerOrg = await prisma.organization.upsert({
+    where: { slug: "sahyadri-cold" },
+    update: {},
+    create: {
       name: "Sahyadri Agro Cold Storage & Logistics Hub",
       slug: "sahyadri-cold",
       type: OrgType.RESCUE_PARTNER,
-      memberships: {
-        create: {
-          userId: partnerUser.id,
-          orgRole: OrgMemberRole.OWNER,
-        },
-      },
     },
   });
 
-  await prisma.rescuePartnerProfile.create({
-    data: {
+  await prisma.membership.upsert({
+    where: {
+      userId_organizationId: {
+        userId: partnerUser.id,
+        organizationId: partnerOrg.id,
+      },
+    },
+    update: {},
+    create: {
+      userId: partnerUser.id,
+      organizationId: partnerOrg.id,
+      orgRole: OrgMemberRole.OWNER,
+    },
+  });
+
+  await prisma.rescuePartnerProfile.upsert({
+    where: { organizationId: partnerOrg.id },
+    update: {
+      onboardingComplete: true,
+      verificationStatus: "SELF_REPORTED_VERIFIED_LOCATION",
+      isActive: true,
+    },
+    create: {
       organizationId: partnerOrg.id,
       facilityName: "Sahyadri Lonavala Cold Terminal",
       facilityType: FacilityType.COLD_STORAGE,
@@ -297,12 +395,16 @@ async function main() {
       contactEmail: "rescue@sahyadricold.com",
       contactPhone: "+91-2114-273000",
       isActive: true,
+      onboardingComplete: true,
+      verificationStatus: "SELF_REPORTED_VERIFIED_LOCATION",
     },
   });
 
-  // 9. Separate Organization for Tenant Isolation Verification
-  const competitorOperator = await prisma.user.create({
-    data: {
+  // 7. Separate Competitor Organization for Isolation Testing
+  const competitorOperator = await prisma.user.upsert({
+    where: { email: "operator@coastalreefer.com" },
+    update: {},
+    create: {
       email: "operator@coastalreefer.com",
       name: "Arjun Nair",
       passwordHash: operatorPass,
@@ -310,22 +412,35 @@ async function main() {
     },
   });
 
-  const competitorOrg = await prisma.organization.create({
-    data: {
+  const competitorOrg = await prisma.organization.upsert({
+    where: { slug: "coastal-reefer" },
+    update: {},
+    create: {
       name: "Coastal Reefer Lines",
       slug: "coastal-reefer",
       type: OrgType.FLEET,
-      memberships: {
-        create: {
-          userId: competitorOperator.id,
-          orgRole: OrgMemberRole.OWNER,
-        },
-      },
     },
   });
 
-  await prisma.shipment.create({
-    data: {
+  await prisma.membership.upsert({
+    where: {
+      userId_organizationId: {
+        userId: competitorOperator.id,
+        organizationId: competitorOrg.id,
+      },
+    },
+    update: {},
+    create: {
+      userId: competitorOperator.id,
+      organizationId: competitorOrg.id,
+      orgRole: OrgMemberRole.OWNER,
+    },
+  });
+
+  await prisma.shipment.upsert({
+    where: { trackingNumber: "COAST-2026-99" },
+    update: {},
+    create: {
       organizationId: competitorOrg.id,
       trackingNumber: "COAST-2026-99",
       title: "Confidential Deep Frozen Sea Bass",
@@ -340,23 +455,12 @@ async function main() {
     },
   });
 
-  console.log("✅ Seed completed successfully!");
-  console.log("----------------------------------------------------------------");
-  console.log("Demo Credentials:");
-  console.log("1. Admin:         admin@annapurna.local      / AdminPass123!");
-  console.log("2. Operator:      operator@transcold.com     / Operator123!");
-  console.log("3. Driver:        driver.raj@transcold.com   / Driver123!");
-  console.log("4. Rescue Partner: director@sahyadricold.com  / Partner123!");
-  console.log("5. Competitor:    operator@coastalreefer.com / Operator123!");
-  console.log("Edge Device API Keys (provisioned):");
-  console.log(`- DEVICE-APN-001: ${deviceKey1}`);
-  console.log(`- DEVICE-APN-002: ${deviceKey2}`);
-  console.log("----------------------------------------------------------------");
+  console.log("✅ Idempotent seed completed successfully without destructive data wiping!");
 }
 
 main()
   .catch((e) => {
-    console.error("❌ Seed failed:", e);
+    console.error("❌ Seed failed:", e.message);
     process.exit(1);
   })
   .finally(async () => {

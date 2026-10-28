@@ -36,12 +36,29 @@ npm run build
 
 For database migrations on production:
 ```bash
-npx prisma db push --accept-data-loss=false
+npm run db:migrate:deploy
 ```
-Or generate standard SQL migration files:
+*(Executes committed versioned Prisma migrations in `prisma/migrations/`)*.
+
+To verify migration status:
 ```bash
-npx prisma migrate deploy
+npm run db:migrate:status
 ```
+
+### 3.1 Initializing Essential Production Records
+To provision essential administrative tenants and system settings non-destructively:
+```bash
+npm run db:init:essential
+```
+*(Safe and idempotent; never erases or truncates existing data)*.
+
+### 3.2 Provisioning Production Administrator
+Provision the initial production administrative user with strong credential policies (minimum 12 characters, uppercase, lowercase, numbers, and symbols):
+```bash
+ADMIN_EMAIL="admin@yourdomain.com" ADMIN_PASSWORD="YourStrongPassword123!" npm run admin:provision
+```
+
+> **Safety Notice:** Destructive reset scripts (`npm run db:reset:demo`) and demo fixture seeds (`npm run db:seed`) are protected by `assertSafeForDestructiveReset` and will refuse to execute in production or against non-local databases. Never run demo reset in production.
 
 ---
 

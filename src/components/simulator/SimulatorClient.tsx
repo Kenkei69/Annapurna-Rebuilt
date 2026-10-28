@@ -10,10 +10,8 @@ import {
   Copy,
   Radio,
   CheckCircle2,
-  AlertTriangle,
   ArrowRight,
   RefreshCw,
-  Cpu,
 } from "lucide-react";
 
 interface SimulatorClientProps {

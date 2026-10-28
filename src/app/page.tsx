@@ -7,8 +7,6 @@ import {
   CheckCircle2,
   Lock,
   ArrowRight,
-  Database,
-  Sparkles,
 } from "lucide-react";
 
 export default function HomePage() {

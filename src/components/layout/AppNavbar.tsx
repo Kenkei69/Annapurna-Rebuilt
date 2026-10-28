@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Thermometer,
-  Shield,
   Truck,
   AlertTriangle,
   LifeBuoy,
@@ -13,10 +12,8 @@ import {
   Activity,
   History,
   LogOut,
-  User,
   Menu,
   X,
-  ChevronDown,
 } from "lucide-react";
 
 interface UserSession {

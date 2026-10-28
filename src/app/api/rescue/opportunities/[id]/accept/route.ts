@@ -4,6 +4,7 @@ import { requireAuth } from "@/lib/auth";
 import { acceptRescueOffer } from "@/lib/rescue";
 import { assertOrgAccess } from "@/lib/org";
 import { prisma } from "@/lib/db";
+import { AppError } from "@/lib/errors";
 
 const AcceptOfferSchema = z.object({
   offerId: z.string(),
@@ -41,7 +42,10 @@ export async function POST(
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: "Validation failed", details: err.errors }, { status: 400 });
     }
+    if (err instanceof AppError) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: err.statusCode });
+    }
     console.error("Accept offer error:", err);
-    return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }
