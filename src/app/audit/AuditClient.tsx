@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { History, Shield, Filter, Search } from "lucide-react";
+import { Filter, Search } from "lucide-react";
 
 interface AuditClientProps {
   events: any[];

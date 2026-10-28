@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { hashPassword, createSessionToken, authCookieConfig } from "@/lib/auth";
-import { createOrganizationWithAdmin } from "@/lib/org";
 import { recordAuditEvent } from "@/lib/audit";
 import { OrgType, UserRole } from "@prisma/client";
 

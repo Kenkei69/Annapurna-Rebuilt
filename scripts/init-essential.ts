@@ -4,7 +4,7 @@
  * Does NOT erase existing records, users, shipments, or audit trails.
  */
 
-import { PrismaClient, OrgType, OrgMemberRole } from "@prisma/client";
+import { PrismaClient, OrgType } from "@prisma/client";
 import { getDatabaseUrl } from "../src/lib/db";
 
 const prisma = new PrismaClient({

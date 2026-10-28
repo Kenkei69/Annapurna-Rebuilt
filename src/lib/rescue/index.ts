@@ -2,7 +2,6 @@ import { prisma } from "../db";
 import { OfferStatus, RescueStatus, ShipmentStatus } from "@prisma/client";
 import { recordAuditEvent } from "../audit";
 import {
-  canTransitionRescue,
   canTransitionShipment,
   isValidRescueMilestone,
 } from "../lifecycle";

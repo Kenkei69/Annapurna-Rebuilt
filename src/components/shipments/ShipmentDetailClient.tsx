@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -10,12 +10,9 @@ import {
   ShieldAlert,
   LifeBuoy,
   Cpu,
-  Truck,
   Sparkles,
   Clock,
-  CheckCircle2,
   AlertTriangle,
-  ArrowRight,
   Copy,
   Check,
   Send,
@@ -52,11 +49,19 @@ export function ShipmentDetailClient({ shipment, userRole }: ShipmentDetailProps
   // Status transition state
   const [transitionLoading, setTransitionLoading] = useState(false);
 
-  // Calculate age of latest reading
-  const latestDate = shipment.latestRecordedAt ? new Date(shipment.latestRecordedAt) : null;
-  const minutesSinceReading = latestDate
-    ? Math.floor((Date.now() - latestDate.getTime()) / 60000)
-    : null;
+  // Calculate age of latest reading in asynchronous interval to satisfy React purity rules
+  const [minutesSinceReading, setMinutesSinceReading] = useState<number | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (shipment.latestRecordedAt) {
+        const latest = new Date(shipment.latestRecordedAt).getTime();
+        setMinutesSinceReading(Math.floor((Date.now() - latest) / 60000));
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [shipment.latestRecordedAt]);
+
   const isStale = minutesSinceReading !== null && minutesSinceReading > 30;
 
   const isBreached =

@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { AppShell } from "@/components/layout/AppShell";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { Truck, PlusCircle, ArrowRight, Thermometer, ShieldAlert, PlayCircle } from "lucide-react";
+import { PlusCircle, ArrowRight, PlayCircle } from "lucide-react";
 import { AlertStatus } from "@prisma/client";
 
 export default async function ShipmentsListPage() {

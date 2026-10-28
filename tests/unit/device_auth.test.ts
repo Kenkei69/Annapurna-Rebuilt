@@ -1,8 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { prisma } from "../../src/lib/db";
 import { authenticateDevice } from "../../src/lib/telemetry";
-import { hashDeviceApiKey } from "../../src/lib/fleet";
 
 test("Device Authentication - Accepts valid provisioned API key", async () => {
   // Use seeded DEVICE-APN-001

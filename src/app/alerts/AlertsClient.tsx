@@ -4,16 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import {
-  AlertTriangle,
-  ShieldAlert,
-  CheckCircle2,
-  Clock,
-  ArrowRight,
-  Filter,
-  Check,
-  X,
-} from "lucide-react";
+import { Filter } from "lucide-react";
 
 interface AlertsClientProps {
   alerts: any[];

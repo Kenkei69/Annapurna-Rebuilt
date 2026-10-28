@@ -6,7 +6,7 @@ interface StatusBadgeProps {
   className?: string;
 }
 
-export function StatusBadge({ status, variant = "shipment", className = "" }: StatusBadgeProps) {
+export function StatusBadge({ status, className = "" }: StatusBadgeProps) {
   const formatted = status.replace(/_/g, " ");
 
   let colorClasses = "bg-slate-100 text-slate-700 border-slate-200";
