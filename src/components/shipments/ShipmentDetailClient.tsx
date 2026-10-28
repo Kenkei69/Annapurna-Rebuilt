@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { TelemetryChart } from "@/components/charts/TelemetryChart";
+import { ToastBanner, ToastMessage } from "@/components/ui/ToastBanner";
 import {
   Thermometer,
   ShieldAlert,
@@ -22,10 +23,16 @@ import {
 interface ShipmentDetailProps {
   shipment: any;
   userRole: string;
+  accessLevel?: string;
 }
 
-export function ShipmentDetailClient({ shipment, userRole }: ShipmentDetailProps) {
+export function ShipmentDetailClient({
+  shipment,
+  userRole: _userRole,
+  accessLevel: _accessLevel,
+}: ShipmentDetailProps) {
   const router = useRouter();
+  const [toast, setToast] = useState<ToastMessage | null>(null);
 
   // AI Assistant State
   const [aiLoading, setAiLoading] = useState(false);
@@ -42,6 +49,7 @@ export function ShipmentDetailClient({ shipment, userRole }: ShipmentDetailProps
   const [rescueLoading, setRescueLoading] = useState(false);
   const [rescueTitle, setRescueTitle] = useState(`Urgent Cold Transfer: ${shipment.title}`);
   const [rescueBudget, setRescueBudget] = useState(30000);
+  const [rescueCargoWeightKg, setRescueCargoWeightKg] = useState<number>(3000);
   const [rescueNotes, setRescueNotes] = useState(
     `Perishable cargo at risk due to reefer thermal deviation. Requires immediate transfer to cold warehouse or backup reefer.`
   );
@@ -49,17 +57,21 @@ export function ShipmentDetailClient({ shipment, userRole }: ShipmentDetailProps
   // Status transition state
   const [transitionLoading, setTransitionLoading] = useState(false);
 
-  // Calculate age of latest reading in asynchronous interval to satisfy React purity rules
+  // Calculate age of latest reading with 30-second live periodic update
   const [minutesSinceReading, setMinutesSinceReading] = useState<number | null>(null);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const updateAge = () => {
       if (shipment.latestRecordedAt) {
         const latest = new Date(shipment.latestRecordedAt).getTime();
         setMinutesSinceReading(Math.floor((Date.now() - latest) / 60000));
+      } else {
+        setMinutesSinceReading(null);
       }
-    }, 0);
-    return () => clearTimeout(timer);
+    };
+    updateAge();
+    const interval = setInterval(updateAge, 30000);
+    return () => clearInterval(interval);
   }, [shipment.latestRecordedAt]);
 
   const isStale = minutesSinceReading !== null && minutesSinceReading > 30;
@@ -94,9 +106,13 @@ export function ShipmentDetailClient({ shipment, userRole }: ShipmentDetailProps
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "AI Analysis failed");
       setAiResult(data.analysis);
-    } catch (err) {
+      setToast({ type: "success", message: "AI Heuristic incident assessment updated." });
+    } catch (err: any) {
       console.error("AI Analysis error:", err);
-      alert("Failed to analyze incident with AI. Fallback system triggered.");
+      setToast({
+        type: "error",
+        message: err.message || "Failed to analyze incident with AI.",
+      });
     } finally {
       setAiLoading(false);
     }
@@ -124,9 +140,10 @@ export function ShipmentDetailClient({ shipment, userRole }: ShipmentDetailProps
       }
       setActingAlertId(null);
       setAlertNotes("");
+      setToast({ type: "success", message: "Alert acknowledged successfully." });
       router.refresh();
     } catch (err: any) {
-      alert(err.message);
+      setToast({ type: "error", message: err.message });
     } finally {
       setAlertActionLoading(false);
     }
@@ -135,7 +152,10 @@ export function ShipmentDetailClient({ shipment, userRole }: ShipmentDetailProps
   // Resolve Alert
   const handleResolveAlert = async (alertId: string) => {
     if (!alertNotes.trim()) {
-      alert("Resolution notes are required to document audit outcome.");
+      setToast({
+        type: "error",
+        message: "Resolution notes are required to document audit outcome.",
+      });
       return;
     }
     try {
@@ -151,9 +171,10 @@ export function ShipmentDetailClient({ shipment, userRole }: ShipmentDetailProps
       }
       setActingAlertId(null);
       setAlertNotes("");
+      setToast({ type: "success", message: "Alert successfully resolved and recorded in audit log." });
       router.refresh();
     } catch (err: any) {
-      alert(err.message);
+      setToast({ type: "error", message: err.message });
     } finally {
       setAlertActionLoading(false);
     }
@@ -171,7 +192,7 @@ export function ShipmentDetailClient({ shipment, userRole }: ShipmentDetailProps
           shipmentId: shipment.id,
           title: rescueTitle,
           cargoDescription: `${shipment.cargoType}: ${shipment.title}. ${rescueNotes}`,
-          cargoWeightKg: 2500, // standard reefer pallet payload
+          cargoWeightKg: rescueCargoWeightKg,
           tempRequirementMin: shipment.tempMin,
           tempRequirementMax: shipment.tempMax,
           urgency: "HIGH",
@@ -185,10 +206,11 @@ export function ShipmentDetailClient({ shipment, userRole }: ShipmentDetailProps
       }
 
       setShowRescueModal(false);
+      setToast({ type: "success", message: "Rescue opportunity initiated successfully." });
       router.push("/rescue");
       router.refresh();
     } catch (err: any) {
-      alert(err.message);
+      setToast({ type: "error", message: err.message });
     } finally {
       setRescueLoading(false);
     }
@@ -207,9 +229,10 @@ export function ShipmentDetailClient({ shipment, userRole }: ShipmentDetailProps
         const d = await res.json();
         throw new Error(d.error || "Transition failed");
       }
+      setToast({ type: "success", message: `Shipment status updated to ${targetStatus}.` });
       router.refresh();
     } catch (err: any) {
-      alert(err.message);
+      setToast({ type: "error", message: err.message });
     } finally {
       setTransitionLoading(false);
     }
@@ -217,6 +240,7 @@ export function ShipmentDetailClient({ shipment, userRole }: ShipmentDetailProps
 
   return (
     <div className="space-y-6">
+      <ToastBanner toast={toast} onDismiss={() => setToast(null)} />
       {/* Top Header Card */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -349,10 +373,15 @@ export function ShipmentDetailClient({ shipment, userRole }: ShipmentDetailProps
             {minutesSinceReading !== null ? `${minutesSinceReading} min ago` : "No telemetry"}
           </div>
           <div className="text-xs text-slate-500 mt-1">
-            {isStale ? (
+            {minutesSinceReading === null ? (
+              <span className="text-slate-400 font-medium">Awaiting initial sensor transmission</span>
+            ) : isStale ? (
               <span className="text-amber-700 font-semibold">Stale: Device connectivity delayed</span>
             ) : (
-              <span>Authenticated edge stream active</span>
+              <span className="text-emerald-700 font-medium flex items-center gap-1.5">
+                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                Authenticated edge stream active
+              </span>
             )}
           </div>
         </div>
@@ -697,6 +726,21 @@ export function ShipmentDetailClient({ shipment, userRole }: ShipmentDetailProps
                   required
                   value={rescueBudget}
                   onChange={(e) => setRescueBudget(Number(e.target.value))}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Cargo Weight (kg)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  value={rescueCargoWeightKg}
+                  onChange={(e) => setRescueCargoWeightKg(Number(e.target.value))}
+                  placeholder="e.g. 3500"
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900 font-mono"
                 />
               </div>

@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { ToastBanner, ToastMessage } from "@/components/ui/ToastBanner";
 import {
   LifeBuoy,
   Building2,
@@ -41,17 +42,18 @@ interface RescueHubProps {
 
 export function RescueHubClient({
   opportunities,
-  userRole,
-  userOrgId,
+  userRole: _userRole,
+  userOrgId: _userOrgId,
   isPartner,
   partnerProfile,
 }: RescueHubProps) {
   const router = useRouter();
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [selectedOppId, setSelectedOppId] = useState<string>(
     opportunities[0]?.id || ""
   );
 
-  // Partner Onboarding Modal State
+  // Partner Onboarding Modal State — Real placeholders instead of fake hardcoded business details
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
   const [onboardFacilityName, setOnboardFacilityName] = useState(
     partnerProfile?.facilityName || ""
@@ -62,23 +64,23 @@ export function RescueHubClient({
   const [onboardAddress, setOnboardAddress] = useState(
     partnerProfile?.address || ""
   );
-  const [onboardLat, setOnboardLat] = useState(
-    partnerProfile?.latitude ?? 18.7557
+  const [onboardLat, setOnboardLat] = useState<string | number>(
+    partnerProfile?.latitude ?? ""
   );
-  const [onboardLng, setOnboardLng] = useState(
-    partnerProfile?.longitude ?? 73.4091
+  const [onboardLng, setOnboardLng] = useState<string | number>(
+    partnerProfile?.longitude ?? ""
   );
-  const [onboardCapacityKg, setOnboardCapacityKg] = useState(
-    partnerProfile?.capacityAvailableKg ?? 25000
+  const [onboardCapacityKg, setOnboardCapacityKg] = useState<string | number>(
+    partnerProfile?.capacityAvailableKg ?? ""
   );
-  const [onboardTempMin, setOnboardTempMin] = useState(
-    partnerProfile?.tempRangeMin ?? -25.0
+  const [onboardTempMin, setOnboardTempMin] = useState<string | number>(
+    partnerProfile?.tempRangeMin ?? ""
   );
-  const [onboardTempMax, setOnboardTempMax] = useState(
-    partnerProfile?.tempRangeMax ?? 10.0
+  const [onboardTempMax, setOnboardTempMax] = useState<string | number>(
+    partnerProfile?.tempRangeMax ?? ""
   );
   const [onboardPhone, setOnboardPhone] = useState(
-    partnerProfile?.contactPhone || "+91-20-273000"
+    partnerProfile?.contactPhone || ""
   );
   const [onboardEmail, setOnboardEmail] = useState(
     partnerProfile?.contactEmail || ""
@@ -86,13 +88,11 @@ export function RescueHubClient({
   const [submittingOnboarding, setSubmittingOnboarding] = useState(false);
 
   // Partner Offer Form State
-  const [offerAmount, setOfferAmount] = useState(15000);
-  const [capacityKg, setCapacityKg] = useState(5000);
+  const [offerAmount, setOfferAmount] = useState<string | number>("");
+  const [capacityKg, setCapacityKg] = useState<string | number>("");
   const [storageType, setStorageType] = useState("COLD_STORAGE");
-  const [etaMinutes, setEtaMinutes] = useState(25);
-  const [offerNotes, setOfferNotes] = useState(
-    "Pre-cooled intake bay prepared. Immediate receipt upon arrival."
-  );
+  const [etaMinutes, setEtaMinutes] = useState<string | number>("");
+  const [offerNotes, setOfferNotes] = useState("");
   const [submittingOffer, setSubmittingOffer] = useState(false);
 
   // Accept Offer State
@@ -113,6 +113,14 @@ export function RescueHubClient({
   // Save Partner Onboarding
   const handleSaveOnboarding = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (onboardLat === "" || onboardLng === "" || onboardCapacityKg === "" || onboardTempMin === "" || onboardTempMax === "") {
+      setToast({
+        type: "error",
+        message: "Please enter all required numerical facility coordinates and operational envelopes.",
+      });
+      return;
+    }
+
     try {
       setSubmittingOnboarding(true);
       const res = await fetch("/api/partner/profile", {
@@ -137,11 +145,14 @@ export function RescueHubClient({
         throw new Error(d.error || "Failed to save onboarding profile");
       }
 
-      alert("Facility onboarding profile successfully verified and activated!");
+      setToast({
+        type: "success",
+        message: "Facility onboarding profile successfully completed (self-reported profile active).",
+      });
       setShowOnboardingModal(false);
       router.refresh();
     } catch (err: any) {
-      alert(err.message);
+      setToast({ type: "error", message: err.message });
     } finally {
       setSubmittingOnboarding(false);
     }
@@ -152,8 +163,18 @@ export function RescueHubClient({
     e.preventDefault();
     if (!selectedOpp) return;
     if (isPartner && !partnerProfile?.onboardingComplete) {
-      alert("Please complete facility onboarding before submitting offers.");
+      setToast({
+        type: "error",
+        message: "Please complete facility onboarding before submitting offers.",
+      });
       setShowOnboardingModal(true);
+      return;
+    }
+    if (!offerAmount || !capacityKg || !etaMinutes) {
+      setToast({
+        type: "error",
+        message: "Please provide valid quote amount, capacity, and estimated ETA.",
+      });
       return;
     }
     try {
@@ -162,11 +183,11 @@ export function RescueHubClient({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          offerAmount,
-          capacityOfferedKg: capacityKg,
+          offerAmount: Number(offerAmount),
+          capacityOfferedKg: Number(capacityKg),
           storageType,
-          estimatedEtaMinutes: etaMinutes,
-          notes: offerNotes,
+          estimatedEtaMinutes: Number(etaMinutes),
+          notes: offerNotes || "Capacity prepared for incoming cargo.",
         }),
       });
 
@@ -175,10 +196,17 @@ export function RescueHubClient({
         throw new Error(d.error || "Failed to submit offer");
       }
 
-      alert("Capacity offer successfully submitted to fleet operator!");
+      setToast({
+        type: "success",
+        message: "Capacity offer successfully submitted to fleet operator!",
+      });
+      setOfferAmount("");
+      setCapacityKg("");
+      setEtaMinutes("");
+      setOfferNotes("");
       router.refresh();
     } catch (err: any) {
-      alert(err.message);
+      setToast({ type: "error", message: err.message });
     } finally {
       setSubmittingOffer(false);
     }
@@ -200,9 +228,13 @@ export function RescueHubClient({
         throw new Error(d.error || "Failed to accept offer");
       }
 
+      setToast({
+        type: "success",
+        message: "Rescue offer accepted! Opportunity assigned and incident status updated.",
+      });
       router.refresh();
     } catch (err: any) {
-      alert(err.message);
+      setToast({ type: "error", message: err.message });
     } finally {
       setAcceptingOfferId(null);
     }
@@ -228,10 +260,14 @@ export function RescueHubClient({
         throw new Error(d.error || "Failed to record milestone");
       }
 
+      setToast({
+        type: "success",
+        message: "Operational milestone logged successfully.",
+      });
       setMilestoneNotes("");
       router.refresh();
     } catch (err: any) {
-      alert(err.message);
+      setToast({ type: "error", message: err.message });
     } finally {
       setSubmittingMilestone(false);
     }
@@ -242,7 +278,10 @@ export function RescueHubClient({
     e.preventDefault();
     if (!selectedOpp) return;
     if (!completeNotes.trim()) {
-      alert("Final outcome verification notes are required.");
+      setToast({
+        type: "error",
+        message: "Final outcome verification notes are required.",
+      });
       return;
     }
 
@@ -261,10 +300,14 @@ export function RescueHubClient({
         throw new Error(d.error || "Failed to complete rescue");
       }
 
+      setToast({
+        type: "success",
+        message: "Cargo rescue operation successfully concluded and verified.",
+      });
       setShowCompleteModal(false);
       router.refresh();
     } catch (err: any) {
-      alert(err.message);
+      setToast({ type: "error", message: err.message });
     } finally {
       setSubmittingComplete(false);
     }
@@ -272,6 +315,7 @@ export function RescueHubClient({
 
   return (
     <div className="space-y-6">
+      <ToastBanner toast={toast} onDismiss={() => setToast(null)} />
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Cargo Rescue Coordination Hub</h1>
@@ -540,7 +584,7 @@ export function RescueHubClient({
                     </div>
                   ) : (
                     <form onSubmit={handleSubmitOffer} className="space-y-4 text-xs">
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                         <div>
                           <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
                             Quote Amount (₹)
@@ -565,6 +609,21 @@ export function RescueHubClient({
                             onChange={(e) => setCapacityKg(Number(e.target.value))}
                             className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono text-slate-900"
                           />
+                        </div>
+
+                        <div>
+                          <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                            Storage Type
+                          </label>
+                          <select
+                            value={storageType}
+                            onChange={(e) => setStorageType(e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900 bg-white"
+                          >
+                            <option value="COLD_STORAGE">Cold Storage</option>
+                            <option value="WHOLESALE_BUYER">Wholesale Buyer</option>
+                            <option value="EMERGENCY_REEFER">Emergency Reefer</option>
+                          </select>
                         </div>
 
                         <div>
@@ -779,10 +838,9 @@ export function RescueHubClient({
                     onChange={(e) => setOnboardFacilityType(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900 bg-white"
                   >
-                    <option value="COLD_STORAGE">Cold Storage</option>
-                    <option value="EMERGENCY_REEFER">Emergency Reefer</option>
-                    <option value="PROCESSING_DEPOT">Processing Depot</option>
-                    <option value="MOBILE_DISTRIBUTION">Mobile Distribution</option>
+                    <option value="COLD_STORAGE">Cold Storage Facility</option>
+                    <option value="WHOLESALE_BUYER">Wholesale Buyer / Terminal</option>
+                    <option value="EMERGENCY_REEFER">Emergency Mobile Reefer</option>
                   </select>
                 </div>
               </div>
@@ -796,7 +854,7 @@ export function RescueHubClient({
                   required
                   value={onboardAddress}
                   onChange={(e) => setOnboardAddress(e.target.value)}
-                  placeholder="Street address, city, pin code"
+                  placeholder="Street address, industrial estate, city"
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900"
                 />
               </div>
@@ -811,7 +869,8 @@ export function RescueHubClient({
                     step="any"
                     required
                     value={onboardLat}
-                    onChange={(e) => setOnboardLat(Number(e.target.value))}
+                    onChange={(e) => setOnboardLat(e.target.value)}
+                    placeholder="e.g. 18.5204"
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-slate-900"
                   />
                 </div>
@@ -825,7 +884,8 @@ export function RescueHubClient({
                     step="any"
                     required
                     value={onboardLng}
-                    onChange={(e) => setOnboardLng(Number(e.target.value))}
+                    onChange={(e) => setOnboardLng(e.target.value)}
+                    placeholder="e.g. 73.8567"
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-slate-900"
                   />
                 </div>
@@ -834,14 +894,15 @@ export function RescueHubClient({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                    Verified Capacity (kg)
+                    Available Storage Capacity (kg)
                   </label>
                   <input
                     type="number"
                     min="1"
                     required
                     value={onboardCapacityKg}
-                    onChange={(e) => setOnboardCapacityKg(Number(e.target.value))}
+                    onChange={(e) => setOnboardCapacityKg(e.target.value)}
+                    placeholder="e.g. 15000"
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-slate-900"
                   />
                 </div>
@@ -855,7 +916,8 @@ export function RescueHubClient({
                     step="0.1"
                     required
                     value={onboardTempMin}
-                    onChange={(e) => setOnboardTempMin(Number(e.target.value))}
+                    onChange={(e) => setOnboardTempMin(e.target.value)}
+                    placeholder="e.g. -25.0"
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-slate-900"
                   />
                 </div>
@@ -869,7 +931,8 @@ export function RescueHubClient({
                     step="0.1"
                     required
                     value={onboardTempMax}
-                    onChange={(e) => setOnboardTempMax(Number(e.target.value))}
+                    onChange={(e) => setOnboardTempMax(e.target.value)}
+                    placeholder="e.g. 8.0"
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-slate-900"
                   />
                 </div>
@@ -885,6 +948,7 @@ export function RescueHubClient({
                     required
                     value={onboardPhone}
                     onChange={(e) => setOnboardPhone(e.target.value)}
+                    placeholder="e.g. +91 20 2730 0000"
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900"
                   />
                 </div>
@@ -898,6 +962,7 @@ export function RescueHubClient({
                     required
                     value={onboardEmail}
                     onChange={(e) => setOnboardEmail(e.target.value)}
+                    placeholder="e.g. ops@partnerfacility.com"
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900"
                   />
                 </div>

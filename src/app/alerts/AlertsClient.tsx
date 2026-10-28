@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { ToastBanner, ToastMessage } from "@/components/ui/ToastBanner";
 import { Filter } from "lucide-react";
 
 interface AlertsClientProps {
@@ -11,14 +12,16 @@ interface AlertsClientProps {
   userRole: string;
 }
 
-export function AlertsClient({ alerts, userRole }: AlertsClientProps) {
+export function AlertsClient({ alerts, userRole: _userRole }: AlertsClientProps) {
   const router = useRouter();
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [filterSeverity, setFilterSeverity] = useState<string>("ALL");
   const [filterStatus, setFilterStatus] = useState<string>("ALL");
 
   const [actingAlertId, setActingAlertId] = useState<string | null>(null);
   const [actionType, setActionType] = useState<"ack" | "resolve" | null>(null);
   const [notes, setNotes] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const filtered = alerts.filter((a) => {
@@ -30,14 +33,23 @@ export function AlertsClient({ alerts, userRole }: AlertsClientProps) {
   const handleAction = async (alertId: string) => {
     if (!actionType) return;
     if (actionType === "resolve" && !notes.trim()) {
-      alert("Resolution notes are required to document audit outcome.");
+      setToast({
+        type: "error",
+        message: "Resolution notes are required to document audit outcome.",
+      });
       return;
     }
 
     try {
       setSubmitting(true);
       const url = `/api/alerts/${alertId}/${actionType === "ack" ? "acknowledge" : "resolve"}`;
-      const payload = actionType === "ack" ? { notes } : { resolutionNotes: notes };
+      const payload =
+        actionType === "ack"
+          ? { notes }
+          : {
+              resolutionNotes: notes,
+              ...(overrideReason.trim() ? { overrideReason: overrideReason.trim() } : {}),
+            };
 
       const res = await fetch(url, {
         method: "POST",
@@ -53,9 +65,14 @@ export function AlertsClient({ alerts, userRole }: AlertsClientProps) {
       setActingAlertId(null);
       setActionType(null);
       setNotes("");
+      setOverrideReason("");
+      setToast({
+        type: "success",
+        message: actionType === "ack" ? "Alert acknowledged." : "Alert resolved successfully.",
+      });
       router.refresh();
     } catch (err: any) {
-      alert(err.message);
+      setToast({ type: "error", message: err.message });
     } finally {
       setSubmitting(false);
     }
@@ -63,6 +80,7 @@ export function AlertsClient({ alerts, userRole }: AlertsClientProps) {
 
   return (
     <div className="space-y-6">
+      <ToastBanner toast={toast} onDismiss={() => setToast(null)} />
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Cold-Chain Alert Center</h1>
@@ -243,20 +261,37 @@ export function AlertsClient({ alerts, userRole }: AlertsClientProps) {
             </p>
 
             <div className="space-y-3">
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                Audit Notes {actionType === "resolve" ? "(Required)" : "(Optional)"}
-              </label>
-              <textarea
-                rows={3}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder={
-                  actionType === "ack"
-                    ? "e.g. Driver notified; checking reefer power harness."
-                    : "e.g. Compressor restarted; temperature returned to 3.2°C; goods verified intact."
-                }
-                className="w-full text-xs px-3 py-2 border border-slate-300 rounded-lg text-slate-900"
-              />
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Audit Notes {actionType === "resolve" ? "(Required)" : "(Optional)"}
+                </label>
+                <textarea
+                  rows={3}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder={
+                    actionType === "ack"
+                      ? "e.g. Driver notified; checking reefer power harness."
+                      : "e.g. Compressor restarted; temperature returned to 3.2°C; goods verified intact."
+                  }
+                  className="w-full text-xs px-3 py-2 border border-slate-300 rounded-lg text-slate-900"
+                />
+              </div>
+
+              {actionType === "resolve" && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                    Override Reason (Required if cargo temperature is still out-of-band)
+                  </label>
+                  <input
+                    type="text"
+                    value={overrideReason}
+                    onChange={(e) => setOverrideReason(e.target.value)}
+                    placeholder="e.g. Temperature sensor re-calibrated; verified by secondary probe."
+                    className="w-full text-xs px-3 py-2 border border-slate-300 rounded-lg text-slate-900"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-slate-100">

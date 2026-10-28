@@ -28,6 +28,8 @@ export default async function ShipmentsListPage() {
       cargoType: true,
       tempMin: true,
       tempMax: true,
+      humidityMin: true,
+      humidityMax: true,
       status: true,
       originName: true,
       destName: true,

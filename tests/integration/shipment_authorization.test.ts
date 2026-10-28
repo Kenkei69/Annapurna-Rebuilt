@@ -8,14 +8,13 @@ import {
   loadAuthorizedShipmentDetails,
   getShipmentsWhereClause,
   getRescueOpportunitiesWhereClause,
-  AuthorizedActor,
 } from "../../src/lib/auth/policy";
 import {
   createRescueOpportunity,
   submitRescueOffer,
   acceptRescueOffer,
 } from "../../src/lib/rescue";
-import { OrgType, UserRole, OfferStatus, RescueStatus } from "@prisma/client";
+import { OrgType, UserRole } from "@prisma/client";
 
 test("Shipment Authorization & Data Exposure - Comprehensive Isolation Policy", async () => {
   const ts = Date.now().toString().slice(-6);
@@ -278,7 +277,7 @@ test("Shipment Authorization & Data Exposure - Comprehensive Isolation Policy", 
     notes: "Offer 1 confidential bid notes",
   });
 
-  const offer2 = await submitRescueOffer({
+  await submitRescueOffer({
     opportunityId: opp.id,
     partnerOrgId: partnerOrg2.id,
     submittedById: partner2User.id,

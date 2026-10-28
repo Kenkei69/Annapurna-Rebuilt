@@ -161,6 +161,7 @@ test("Priority 4: Rescue Lifecycle, Suitability Validation, Expiry Persistence &
     actorId: operator.id,
   });
   assert.equal(acceptResult.opportunity.status, RescueStatus.ACCEPTED);
+  assert.ok(acceptResult.offer);
   assert.equal(acceptResult.offer.status, OfferStatus.ACCEPTED);
 
   // 5. Milestones Progression (Locked & Validated)

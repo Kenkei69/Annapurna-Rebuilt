@@ -43,7 +43,7 @@ export default async function RescuePage() {
       urgency: true,
       targetLat: true,
       targetLng: true,
-      maxBudget: isPartner ? null : true, // Redacted from competing partners
+      ...(!isPartner ? { maxBudget: true } : {}),
       status: true,
       acceptedOfferId: true,
       createdAt: true,

@@ -48,7 +48,7 @@ export async function GET() {
         urgency: true,
         targetLat: true,
         targetLng: true,
-        maxBudget: isPartner ? null : true, // Redacted for competing partners
+        ...(!isPartner ? { maxBudget: true } : {}),
         status: true,
         acceptedOfferId: true,
         createdAt: true,

@@ -19,26 +19,9 @@ export default async function ShipmentDetailPage({
 
   const { id } = await params;
 
+  let shipmentDetails: Awaited<ReturnType<typeof loadAuthorizedShipmentDetails>>;
   try {
-    const { shipment, accessLevel } = await loadAuthorizedShipmentDetails(actor, id);
-
-    return (
-      <AppShell
-        user={{
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          organization: user.memberships[0]?.organization,
-        }}
-      >
-        <ShipmentDetailClient
-          shipment={shipment}
-          userRole={user.role}
-          accessLevel={accessLevel}
-        />
-      </AppShell>
-    );
+    shipmentDetails = await loadAuthorizedShipmentDetails(actor, id);
   } catch (err: unknown) {
     if (err instanceof NotFoundError) {
       notFound();
@@ -48,4 +31,24 @@ export default async function ShipmentDetailPage({
     }
     throw err;
   }
+
+  const { shipment, accessLevel } = shipmentDetails;
+
+  return (
+    <AppShell
+      user={{
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        organization: user.memberships[0]?.organization,
+      }}
+    >
+      <ShipmentDetailClient
+        shipment={shipment}
+        userRole={user.role}
+        accessLevel={accessLevel}
+      />
+    </AppShell>
+  );
 }

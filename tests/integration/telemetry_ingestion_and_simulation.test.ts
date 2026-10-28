@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { prisma } from "../../src/lib/db";
 import { ingestTelemetryReading } from "../../src/lib/telemetry";
 import {
-  acknowledgeAlert,
   detectMissingTelemetry,
   resolveAlert,
 } from "../../src/lib/alerts";
@@ -43,7 +42,7 @@ test("Priority 2 & 3: Telemetry Ingestion, Out-of-Order Safety, Simulator Isolat
   });
 
   const opDevId = `DEV-OP-${Date.now().toString().slice(-6)}`;
-  const { device: opDevice } = await provisionDevice({
+  await provisionDevice({
     organizationId: fleetOrg.id,
     deviceIdentifier: opDevId,
     hardwareModel: "ANNAPURNA-EDGE-S3",
