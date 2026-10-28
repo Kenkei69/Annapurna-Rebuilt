@@ -1,141 +1,105 @@
-# Annapurna Rebuilt — Cold-Chain Integrity & Autonomous Cargo-Rescue Platform
+# Annapurna Rebuilt ❄️🚛
 
-**Annapurna Rebuilt** is an original, production-grade cold-chain monitoring and cargo-rescue platform. Designed for logistics fleets transporting perishable goods (pharmaceuticals, vaccines, dairy, seafood, and fresh produce), the system pairs continuous IoT sensor telemetry ingestion with deterministic thermal breach detection, explainable AI incident triage, and a transaction-safe cargo rescue marketplace.
+**Cold-Chain Integrity Monitoring & Autonomous Cargo-Rescue Platform**  
+*Fresh, original implementation engineered from product requirements.*
 
-> **Provenance & Authorship Notice:**  
-> Developed and maintained by **Kenkei69** with AI assistance. This codebase is a completely fresh, separate implementation built from explicit functional requirements, with its own architecture, database schema, user interface, deterministic alerting rules, and hardware firmware. No source code, diagrams, firmware, or proprietary assets were copied or translated from earlier repositories. See [`PROVENANCE.md`](./PROVENANCE.md) and [`LICENSING_DECISION.md`](./LICENSING_DECISION.md).
-
----
-
-## 1. Key Platform Capabilities
-
-### Phase 1: Reliable Core Cold-Chain Monitoring
-- **Multi-Tenant Scoping:** Explicit organization isolation across Fleet Operators, Drivers, Rescue Partners, and Administrators. Competitor fleets cannot access each other's vehicles, shipments, or telemetry.
-- **Edge Device Ingestion Contract:** Robust `POST /api/telemetry/ingest` endpoint supporting per-device SHA-256 API key authentication, sequence counter monotonicity, duplicate/replay packet suppression, and forward clock drift protection (> 10 min skew rejection).
-- **Deterministic Alert Engine:** Transparent, deterministic threshold rules (`TEMP_HIGH_BREACH`, `TEMP_LOW_BREACH`, `SUSTAINED_BREACH`, `HUMIDITY_BREACH`, `SENSOR_OFFLINE`) with temporal hysteresis to prevent alert storms.
-- **Audit Logging:** Immutable append-only audit trail recording every security, state transition, and operational mutation.
-- **Interactive Simulator:** Built-in scenario injector (`NORMAL`, `GRADUAL_WARMING`, `DOOR_AJAR`, `SENSOR_OFFLINE`, `REPLAY_DUPLICATE`) clearly tagged with `isSimulated: true`.
-
-### Phase 2: Transaction-Safe Cargo-Rescue Coordination
-- **Distress Declaration:** When a refrigerated vehicle suffers catastrophic mechanical failure, dispatch broadcasts a rescue opportunity with cargo weight, temperature tolerances, and emergency budget.
-- **Partner Bidding:** Regional cold-storage facilities and emergency reefers submit competitive quotes (price, capacity, ETA, storage type).
-- **Atomic Acceptance:** Winning offer acceptance executes inside an atomic PostgreSQL database transaction, instantly assigning the rescue, transitioning shipment status to `RESCUE_PENDING`, and rejecting competing bids.
-- **Traceable Timeline:** Milestone tracking from dispatch interception to cold chamber logging and final salvage verification.
-
-### Phase 3: Explainable AI Incident Assistance
-- **Thermal Diagnostic Engine:** Computes warming gradient / velocity (°C / hour) and calculates estimated minutes until critical temperature breach.
-- **Operational Action Plans:** Generates concrete operator guidance and drafts concise, actionable driver dispatch messages.
-- **Human Approval Gate:** AI output is prominently displayed with explicit uncertainty disclaimers and requires human operator confirmation before consequential operational actions.
-- **Deterministic Fallback:** Robust mathematical heuristic fallback ensures full availability even when external AI APIs are offline or reach their 5-second timeout.
+Developed by **Kenkei69** with AI assistance.
 
 ---
 
-## 2. Seeded Demonstration Personas
+## Executive Summary
+**Annapurna Rebuilt** protects temperature-sensitive perishable goods (dairy, fresh produce, vaccines, seafood) in transit. It ingests authenticated IoT edge sensor telemetry, detects thermal anomalies via deterministic rule engines, and coordinates transaction-safe cargo rescues with certified cold-storage facilities before catastrophic spoilage occurs.
 
-To test the multi-tenant architecture and distinct role workflows immediately, four pre-configured personas are available in the local database:
-
-| Persona | Email | Password | Organization | Capabilities |
-| :--- | :--- | :--- | :--- | :--- |
-| **Fleet Operator** | `operator@transcold.com` | `Operator123!` | TransCold Express Logistics | Dispatch shipments, monitor alerts, initiate rescue, review AI triage |
-| **Reefer Driver** | `driver.raj@transcold.com` | `Driver123!` | TransCold Express Logistics | View assigned active shipment, live temperature, driver notices |
-| **Rescue Partner** | `director@sahyadricold.com` | `Partner123!` | Sahyadri Cold Storage Hub | Discover distress broadcasts, submit capacity bids, log rescue milestones |
-| **Platform Admin** | `admin@annapurna.local` | `AdminPass123!` | System Administration | Cross-tenant governance, edge device provisioning, audit trail review |
+### Why a Rebuilt Implementation?
+The maintainer previously hosted an imported snapshot of another project (`Kenkei69/Annapurna`). Due to unestablished reuse permissions in that imported repository, this project—**Annapurna Rebuilt**—was built entirely from scratch with its own modular architecture, original interface, typed database schema, deterministic state machines, and end-to-end test coverage. The original repository and its complete history have been preserved untouched. See [`PROVENANCE.md`](./PROVENANCE.md) for detailed provenance records.
 
 ---
 
-## 3. Technology Stack
+## Core Capabilities
 
-- **Runtime & Framework:** Node.js & Next.js 16 (App Router, Server & Client Components, Turbopack)
-- **Language:** TypeScript 5 (Strict mode)
-- **Database & Persistence:** PostgreSQL with Prisma ORM v6
-- **Styling:** Tailwind CSS v4 with custom responsive design system
-- **Validation:** Zod schemas at all HTTP ingestion boundaries and API routes
-- **Testing:** Native Node.js test runner (`tsx --test`) with 16 automated integration and unit test suites
-- **Firmware:** Arduino C++ for ESP32 with NVS sequence counter persistence
-
----
-
-## 4. Getting Started
-
-### Prerequisites
-- Node.js >= 20.x
-- PostgreSQL database instance
-- npm >= 10.x
-
-### Installation & Local Setup
-
-1. **Clone or navigate to the repository:**
-   ```bash
-   cd /home/runner/workspace/Annapurna-Rebuilt
-   ```
-
-2. **Configure Environment Variables:**
-   Copy `.env.example` to `.env` and configure your PostgreSQL connection:
-   ```env
-   DATABASE_URL="postgresql://postgres:password@localhost:5432/annapurna_db?sslmode=disable"
-   SESSION_SECRET="annapurna_super_secure_hmac_secret_key_minimum_32_characters"
-   NODE_ENV="development"
-   ```
-
-3. **Install Dependencies:**
-   ```bash
-   npm install
-   ```
-
-4. **Sync Schema & Seed Database:**
-   ```bash
-   npm run db:push
-   npm run db:seed
-   ```
-
-5. **Run Automated Test Suite:**
-   ```bash
-   npm test
-   ```
-
-6. **Start Development Server:**
-   ```bash
-   npm run dev
-   ```
-   Open `http://localhost:3000` in your browser.
-
-7. **Production Build:**
-   ```bash
-   npm run build
-   npm start
-   ```
-
----
-
-## 5. Repository Structure
-
+```mermaid
+flowchart LR
+    Edge["Edge Device / Simulator"] -->|Auth + Telemetry| Core["Annapurna Core"]
+    Core -->|Deterministic Rules| Alert["Thermal Alert Center"]
+    Alert -->|AI Advisory Gradient| AI["Decision Support"]
+    Alert -->|Cargo Rescue Request| Market["Rescue Marketplace"]
+    Market -->|Single-Winner ACID Enactment| Partner["Cold-Storage Partner"]
+    Core -->|Audit Ledger| Audit["Immutable Audit Log"]
 ```
-Annapurna-Rebuilt/
-├── firmware/
-│   ├── esp32_annapurna_sensor/   # C++ ESP32 telemetry reference firmware
-│   └── README.md                 # Hardware ingestion protocol & flashing guide
-├── prisma/
-│   ├── schema.prisma             # 13 normalized PostgreSQL models
-│   └── seed.ts                   # Realistic multi-tenant seed dataset
-├── src/
-│   ├── app/                      # Next.js App Router (pages & API routes)
-│   │   ├── admin/                # Platform governance
-│   │   ├── alerts/               # Alert center & resolution
-│   │   ├── api/                  # Ingestion, auth, rescue, AI endpoints
-│   │   ├── audit/                # Immutable platform audit trail
-│   │   ├── dashboard/            # Operational command center
-│   │   ├── devices/              # Edge IoT device registry & key provisioning
-│   │   ├── fleet/                # Reefer vehicle management
-│   │   ├── rescue/               # Cargo rescue coordination marketplace
-│   │   ├── shipments/            # Shipment tracking, detail & AI assistant
-│   │   └── simulator/            # Interactive sensor scenario injector
-│   ├── components/               # Reusable UI components & SVG telemetry chart
-│   └── lib/                      # Core business logic (auth, telemetry, alerts, rescue, AI)
-├── tests/
-│   ├── integration/              # End-to-end multi-role journey tests
-│   └── unit/                     # Auth, state machine, AI heuristic, edge case tests
-├── ARCHITECTURE.md               # Module decomposition & concurrency design
-├── LICENSING_DECISION.md         # Dependency analysis & licensing options
-├── PROVENANCE.md                 # Authorship disclosure & dependency inventory
-└── package.json
+
+1. **Multi-Tenant Fleet Isolation:** Explicit organization boundaries prevent cross-tenant data leaks. Fleets cannot see competitor routes, devices, or negotiated rescue offers.
+2. **Hardened IoT Ingestion:** Devices authenticate with SHA-256 hashed API tokens. Ingestion enforces sequence deduplication, forward clock drift rejection (> 10 min), and strict boundary validation.
+3. **Deterministic Alert Engine:** Transparent, hysteresis-backed detection for upper breaches, sub-cooling risks, and sustained mechanical compressor failures.
+4. **Transaction-Safe Cargo Rescue:** When reefer units fail, operators broadcast rescue requests. Certified storage facilities submit capacity quotes. Operator acceptance uses PostgreSQL ACID transactions to enforce a strict single-winner assignment and reject competing bids simultaneously.
+5. **Human-in-the-Loop AI Advisory:** Computes thermal gradients, warming velocity (+°C / 10m), and estimated time to spoilage. Drafts advisory messages to drivers with explicit human approval guardrails. Seamlessly falls back to a deterministic expert system when external AI is offline.
+6. **Synthetic Telemetry Simulator:** Built-in interactive test harness (`/simulator`) emitting synthetic scenarios (Normal transit, Warming breach, Door ajar, Stale telemetry, Replay retry), clearly labeled `isSimulated: true`.
+7. **Immutable Audit Ledger:** Every state change, acknowledgment, rescue offer, and milestone is recorded with actor email, timestamp, and metadata.
+
+---
+
+## User Personas & Roles
+
+| Role | Operational Scope | Pre-Seeded Demo User |
+| :--- | :--- | :--- |
+| **Fleet Operator** | Manages reefer vehicles, creates shipments, monitors thermal telemetry, acknowledges alerts, and accepts rescue offers. | `operator@transcold.com` / `Operator123!` |
+| **Reefer Driver** | Views assigned active route, checks critical thermal instructions, and logs delivery progress. | `driver.raj@transcold.com` / `Driver123!` |
+| **Rescue Partner** | Operates cold-storage warehouses or backup reefers; bids on cargo rescue requests and executes offloading. | `director@sahyadricold.com` / `Partner123!` |
+| **Platform Admin** | Platform governance, cross-tenant isolation auditing, and system health metrics. | `admin@annapurna.local` / `AdminPass123!` |
+
+---
+
+## Technical Stack
+- **Framework:** [Next.js 16](https://nextjs.org/) (App Router, Turbopack, React 19)
+- **Database:** [PostgreSQL 15+](https://www.postgresql.org/) with [Prisma ORM 6](https://www.prisma.io/)
+- **Validation:** [Zod](https://zod.dev/) for strict API trust-boundary schemas
+- **Styling:** Modern Tailwind CSS with accessible semantic color coding
+- **Icons:** [Lucide React](https://lucide.dev/)
+- **Testing:** Node.js native test runner (`node:test`, `tsx`)
+
+---
+
+## Quickstart Guide
+
+### 1. Configure Environment
+```bash
+cp .env.example .env
 ```
+Ensure `DATABASE_URL` and `SESSION_SECRET` are set in `.env`.
+
+### 2. Install & Migrate
+```bash
+npm install
+npm run db:push
+npm run db:generate
+npm run db:seed
+```
+
+### 3. Launch Development Server
+```bash
+npm run dev
+```
+Open [http://localhost:3000](http://localhost:3000) to access the landing page or log in with any demo persona.
+
+### 4. Run Automated Tests
+```bash
+npm test
+```
+All 16 unit and integration test suites will execute and verify tenant isolation, device auth, deduplication, alert generation, and single-winner rescue transactions.
+
+---
+
+## Documentation Index
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md): System architecture, diagrams, module breakdown, and data flow.
+- [`DATA_MODEL.md`](./DATA_MODEL.md): Relational schema, indexes, constraints, and state machine transition rules.
+- [`SETUP.md`](./SETUP.md): Local development, database configuration, and environment setup.
+- [`SIMULATOR.md`](./SIMULATOR.md): Ingestion contract and synthetic scenario harness.
+- [`DEPLOYMENT.md`](./DEPLOYMENT.md): Vercel and managed PostgreSQL deployment, zero-downtime migrations, and rollbacks.
+- [`TESTING.md`](./TESTING.md): Test inventory, automated test results, and browser journey reports.
+- [`SECURITY.md`](./SECURITY.md): Threat model, cryptographic tokens, rate limiting, and known limitations.
+- [`PROVENANCE.md`](./PROVENANCE.md): Provenance declaration, originality compliance, and licensing decision guide.
+- [`THIRD_PARTY_LICENSES.md`](./THIRD_PARTY_LICENSES.md): Dependency license disclosures.
+
+---
+
+## Licensing Notice
+An open-source license has not been attached on the maintainer's behalf without explicit selection. Kenkei69 may select an appropriate license (e.g. MIT, Apache 2.0, BSL, or Proprietary) per [`PROVENANCE.md`](./PROVENANCE.md). All underlying runtime dependencies are permissively licensed (MIT / Apache-2.0 / ISC).
