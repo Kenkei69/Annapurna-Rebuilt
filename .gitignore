@@ -1,0 +1,29 @@
+# Dependencies
+/node_modules
+/.pnp
+.pnp.*
+
+# Build & Next.js
+/.next/
+/out/
+/build/
+
+# Testing & Coverage
+/coverage
+
+# Environment & Credentials
+.env
+.env*.local
+*.pem
+*.key
+idp_config*.json
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# System
+.DS_Store
+*.tsbuildinfo
+next-env.d.ts

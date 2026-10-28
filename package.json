@@ -1,0 +1,47 @@
+{
+  "name": "annapurna-rebuilt",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Annapurna Rebuilt — Cold-Chain Integrity Monitoring and Autonomous Cargo-Rescue Platform",
+  "author": "Kenkei69",
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
+    "test": "tsx --test \"tests/unit/*.test.ts\" \"tests/integration/*.test.ts\""
+  },
+  "dependencies": {
+    "@prisma/client": "^6.4.0",
+    "bcryptjs": "^2.4.3",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.16.0",
+    "next": "^16.4.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^3.0.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20.17.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.20.0",
+    "eslint-config-next": "^16.4.3",
+    "postcss": "^8.5.0",
+    "prisma": "^6.4.0",
+    "tailwindcss": "^4.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.0"
+  },
+  "overrides": {
+    "tar": "^7.5.22",
+    "proxy-addr": "^2.0.8",
+    "dompurify": "^3.4.17"
+  }
+}

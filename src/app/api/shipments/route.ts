@@ -1,0 +1,156 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { prisma } from "@/lib/db";
+import { requireAuth } from "@/lib/auth";
+import { createShipment } from "@/lib/shipments";
+import { assertOrgAccess, getUserPrimaryOrg } from "@/lib/org";
+import { UserRole, ShipmentStatus } from "@prisma/client";
+
+const CreateShipmentSchema = z.object({
+  title: z.string().min(3),
+  cargoType: z.string().min(2),
+  tempMin: z.number(),
+  tempMax: z.number(),
+  humidityMin: z.number().optional(),
+  humidityMax: z.number().optional(),
+  originName: z.string().min(2),
+  originLat: z.number().optional(),
+  originLng: z.number().optional(),
+  destName: z.string().min(2),
+  destLat: z.number().optional(),
+  destLng: z.number().optional(),
+  assignedVehicleId: z.string().optional(),
+  assignedDeviceId: z.string().optional(),
+  assignedDriverId: z.string().optional(),
+  organizationId: z.string().optional(),
+});
+
+export async function GET(req: Request) {
+  try {
+    const user = await requireAuth();
+    const url = new URL(req.url);
+    const statusParam = url.searchParams.get("status") as ShipmentStatus | null;
+    const searchParam = url.searchParams.get("search") || "";
+
+    const primaryOrg = await getUserPrimaryOrg(user.id);
+    if (!primaryOrg && user.role !== UserRole.ADMIN) {
+      return NextResponse.json({ shipments: [] });
+    }
+
+    const whereClause: Record<string, unknown> = {};
+
+    // Organization Isolation
+    if (user.role !== UserRole.ADMIN) {
+      whereClause.organizationId = primaryOrg?.id;
+    }
+
+    // Driver Scoping
+    if (user.role === UserRole.DRIVER) {
+      whereClause.assignedDriverId = user.id;
+    }
+
+    if (statusParam) {
+      whereClause.status = statusParam;
+    }
+
+    if (searchParam) {
+      whereClause.OR = [
+        { title: { contains: searchParam, mode: "insensitive" } },
+        { trackingNumber: { contains: searchParam, mode: "insensitive" } },
+        { cargoType: { contains: searchParam, mode: "insensitive" } },
+      ];
+    }
+
+    const shipments = await prisma.shipment.findMany({
+      where: whereClause,
+      include: {
+        assignedVehicle: true,
+        assignedDevice: true,
+        assignedDriver: { select: { id: true, name: true, email: true } },
+        alerts: {
+          where: { status: "ACTIVE" },
+        },
+        rescueOpportunity: true,
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 50,
+    });
+
+    return NextResponse.json({ shipments });
+  } catch (err: unknown) {
+    console.error("List shipments error:", err);
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const user = await requireAuth();
+    const body = await req.json();
+    const data = CreateShipmentSchema.parse(body);
+
+    const primaryOrg = await getUserPrimaryOrg(user.id);
+    const targetOrgId = data.organizationId || primaryOrg?.id;
+
+    if (!targetOrgId) {
+      return NextResponse.json({ error: "Missing organization context" }, { status: 400 });
+    }
+
+    await assertOrgAccess(user.id, user.role, targetOrgId, ["OWNER", "DISPATCHER"]);
+
+    if (data.tempMin >= data.tempMax) {
+      return NextResponse.json(
+        { error: "tempMin must be strictly less than tempMax" },
+        { status: 400 }
+      );
+    }
+
+    // Verify assigned vehicle & device belong to the same organization
+    if (data.assignedVehicleId) {
+      const v = await prisma.vehicle.findUnique({
+        where: { id: data.assignedVehicleId },
+      });
+      if (!v || v.organizationId !== targetOrgId) {
+        return NextResponse.json({ error: "Vehicle not found in organization" }, { status: 400 });
+      }
+    }
+
+    if (data.assignedDeviceId) {
+      const d = await prisma.device.findUnique({
+        where: { id: data.assignedDeviceId },
+      });
+      if (!d || d.organizationId !== targetOrgId) {
+        return NextResponse.json({ error: "Device not found in organization" }, { status: 400 });
+      }
+    }
+
+    const shipment = await createShipment({
+      organizationId: targetOrgId,
+      title: data.title,
+      cargoType: data.cargoType,
+      tempMin: data.tempMin,
+      tempMax: data.tempMax,
+      humidityMin: data.humidityMin,
+      humidityMax: data.humidityMax,
+      originName: data.originName,
+      originLat: data.originLat,
+      originLng: data.originLng,
+      destName: data.destName,
+      destLat: data.destLat,
+      destLng: data.destLng,
+      assignedVehicleId: data.assignedVehicleId,
+      assignedDeviceId: data.assignedDeviceId,
+      assignedDriverId: data.assignedDriverId,
+      actorId: user.id,
+      actorEmail: user.email,
+    });
+
+    return NextResponse.json({ success: true, shipment }, { status: 201 });
+  } catch (err: unknown) {
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: "Validation failed", details: err.errors }, { status: 400 });
+    }
+    console.error("Create shipment error:", err);
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+  }
+}

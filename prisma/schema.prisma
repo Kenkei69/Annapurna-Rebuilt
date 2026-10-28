@@ -1,0 +1,383 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  ADMIN
+  OPERATOR
+  DRIVER
+  PARTNER
+}
+
+enum OrgType {
+  FLEET
+  RESCUE_PARTNER
+  ADMINISTRATIVE
+}
+
+enum OrgMemberRole {
+  OWNER
+  DISPATCHER
+  DRIVER
+  MEMBER
+}
+
+enum VehicleStatus {
+  ACTIVE
+  MAINTENANCE
+  INACTIVE
+}
+
+enum DeviceStatus {
+  ACTIVE
+  SUSPENDED
+  DECOMMISSIONED
+}
+
+enum ShipmentStatus {
+  DRAFT
+  DISPATCHED
+  IN_TRANSIT
+  ALERTED
+  RESCUE_PENDING
+  RESCUED
+  DELIVERED
+  CANCELLED
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AlertStatus {
+  ACTIVE
+  ACKNOWLEDGED
+  RESOLVED
+  DISMISSED
+}
+
+enum RescueUrgency {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RescueStatus {
+  OPEN
+  OFFERED
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum OfferStatus {
+  SUBMITTED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum FacilityType {
+  COLD_STORAGE
+  WHOLESALE_BUYER
+  EMERGENCY_REEFER
+}
+
+model User {
+  id           String       @id @default(uuid())
+  email        String       @unique
+  passwordHash String
+  name         String
+  role         UserRole     @default(OPERATOR)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  memberships        Membership[]
+  driverShipments    Shipment[]            @relation("DriverShipments")
+  acknowledgedAlerts Alert[]               @relation("AcknowledgedAlerts")
+  resolvedAlerts     Alert[]               @relation("ResolvedAlerts")
+  submittedOffers    RescueOffer[]         @relation("SubmittedOffers")
+  recordedMilestones RescueMilestone[]     @relation("RecordedMilestones")
+  auditEvents        AuditEvent[]
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  type      OrgType  @default(FLEET)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships         Membership[]
+  vehicles            Vehicle[]
+  devices             Device[]
+  shipments           Shipment[]
+  alerts              Alert[]
+  rescueOpportunities RescueOpportunity[]
+  partnerProfile      RescuePartnerProfile?
+  partnerOffers       RescueOffer[]        @relation("PartnerOffers")
+  auditEvents         AuditEvent[]
+}
+
+model Membership {
+  id             String        @id @default(uuid())
+  userId         String
+  organizationId String
+  orgRole        OrgMemberRole @default(MEMBER)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+model Vehicle {
+  id               String        @id @default(uuid())
+  organizationId   String
+  licensePlate     String
+  makeModel        String
+  reeferType       String        @default("STANDARD_REEFER")
+  tempCapabilityMin Float        @default(-25.0)
+  tempCapabilityMax Float        @default(25.0)
+  status           VehicleStatus @default(ACTIVE)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  shipments    Shipment[]
+
+  @@unique([organizationId, licensePlate])
+  @@index([organizationId])
+}
+
+model Device {
+  id               String       @id @default(uuid())
+  organizationId   String
+  deviceIdentifier String       @unique
+  hardwareModel    String       @default("ANNAPURNA-EDGE-S3")
+  apiKeyHash       String
+  status           DeviceStatus @default(ACTIVE)
+  lastSeenAt       DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  shipments         Shipment[]
+  telemetryReadings TelemetryReading[]
+
+  @@index([organizationId])
+}
+
+model Shipment {
+  id               String         @id @default(uuid())
+  organizationId   String
+  trackingNumber   String         @unique
+  title            String
+  cargoType        String
+  tempMin          Float
+  tempMax          Float
+  humidityMin      Float?
+  humidityMax      Float?
+  status           ShipmentStatus @default(DRAFT)
+  originName       String
+  originLat        Float?
+  originLng        Float?
+  destName         String
+  destLat          Float?
+  destLng          Float?
+  assignedVehicleId String?
+  assignedDeviceId String?
+  assignedDriverId String?
+  latestTemperature Float?
+  latestHumidity   Float?
+  latestLat        Float?
+  latestLng        Float?
+  latestRecordedAt DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignedVehicle   Vehicle?           @relation(fields: [assignedVehicleId], references: [id], onDelete: SetNull)
+  assignedDevice    Device?            @relation(fields: [assignedDeviceId], references: [id], onDelete: SetNull)
+  assignedDriver    User?              @relation("DriverShipments", fields: [assignedDriverId], references: [id], onDelete: SetNull)
+  telemetryReadings TelemetryReading[]
+  alerts            Alert[]
+  rescueOpportunity RescueOpportunity?
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([assignedDeviceId])
+}
+
+model TelemetryReading {
+  id          String   @id @default(uuid())
+  shipmentId  String?
+  deviceId    String
+  sequence    Int
+  recordedAt  DateTime
+  receivedAt  DateTime @default(now())
+  temperature Float
+  humidity    Float?
+  latitude    Float?
+  longitude   Float?
+  batteryPct  Float?
+  isSimulated Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  shipment Shipment? @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+  device   Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, sequence])
+  @@index([shipmentId, recordedAt])
+  @@index([deviceId, recordedAt])
+}
+
+model Alert {
+  id                  String        @id @default(uuid())
+  organizationId      String
+  shipmentId          String
+  ruleCode            String
+  severity            AlertSeverity @default(HIGH)
+  status              AlertStatus   @default(ACTIVE)
+  summary             String
+  triggerReadingJson  String?
+  recommendedAction   String?
+  acknowledgedById    String?
+  acknowledgedAt      DateTime?
+  ackNotes            String?
+  resolvedById        String?
+  resolvedAt          DateTime?
+  resolutionNotes     String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  shipment       Shipment     @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  acknowledgedBy User?        @relation("AcknowledgedAlerts", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+  resolvedBy     User?        @relation("ResolvedAlerts", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([shipmentId])
+  @@index([status])
+}
+
+model RescueOpportunity {
+  id                   String        @id @default(uuid())
+  organizationId       String
+  shipmentId           String        @unique
+  title                String
+  cargoDescription     String
+  cargoWeightKg        Float
+  tempRequirementMin   Float
+  tempRequirementMax   Float
+  urgency              RescueUrgency @default(HIGH)
+  targetLat            Float?
+  targetLng            Float?
+  maxBudget            Float?
+  status               RescueStatus  @default(OPEN)
+  acceptedOfferId      String?       @unique
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  shipment     Shipment          @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  offers       RescueOffer[]
+  milestones   RescueMilestone[]
+
+  @@index([organizationId])
+  @@index([status])
+}
+
+model RescuePartnerProfile {
+  id                 String       @id @default(uuid())
+  organizationId     String       @unique
+  facilityName       String
+  facilityType       FacilityType @default(COLD_STORAGE)
+  address            String
+  latitude           Float
+  longitude          Float
+  capacityAvailableKg Float
+  tempRangeMin       Float
+  tempRangeMax       Float
+  contactEmail       String
+  contactPhone       String?
+  isActive           Boolean      @default(true)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([facilityType])
+  @@index([isActive])
+}
+
+model RescueOffer {
+  id                 String      @id @default(uuid())
+  opportunityId      String
+  partnerOrgId       String
+  submittedById      String
+  offerAmount        Float
+  capacityOfferedKg  Float
+  storageType        String
+  estimatedEtaMinutes Int
+  validUntil         DateTime
+  status             OfferStatus @default(SUBMITTED)
+  notes              String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  opportunity RescueOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  partnerOrg  Organization      @relation("PartnerOffers", fields: [partnerOrgId], references: [id], onDelete: Cascade)
+  submittedBy User              @relation("SubmittedOffers", fields: [submittedById], references: [id], onDelete: Cascade)
+
+  @@index([opportunityId])
+  @@index([partnerOrgId])
+  @@index([status])
+}
+
+model RescueMilestone {
+  id            String   @id @default(uuid())
+  opportunityId String
+  actorId       String
+  milestoneType String
+  notes         String?
+  recordedAt    DateTime @default(now())
+
+  opportunity RescueOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  actor       User              @relation("RecordedMilestones", fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([opportunityId])
+}
+
+model AuditEvent {
+  id             String   @id @default(uuid())
+  organizationId String?
+  actorId        String?
+  actorEmail     String?
+  action         String
+  entityType     String
+  entityId       String
+  detailsJson    String?
+  ipAddress      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  actor        User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([entityType, entityId])
+}
