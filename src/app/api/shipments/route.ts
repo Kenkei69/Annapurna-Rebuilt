@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
+import { getAuthorizedActor, getShipmentsWhereClause } from "@/lib/auth/policy";
 import { createShipment } from "@/lib/shipments";
 import { assertOrgAccess, getUserPrimaryOrg } from "@/lib/org";
-import { UserRole, ShipmentStatus } from "@prisma/client";
+import { ShipmentStatus } from "@prisma/client";
 
 const CreateShipmentSchema = z.object({
   title: z.string().min(3),
@@ -27,27 +28,17 @@ const CreateShipmentSchema = z.object({
 
 export async function GET(req: Request) {
   try {
-    const user = await requireAuth();
+    const actor = await getAuthorizedActor();
+    if (!actor) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const url = new URL(req.url);
     const statusParam = url.searchParams.get("status") as ShipmentStatus | null;
     const searchParam = url.searchParams.get("search") || "";
 
-    const primaryOrg = await getUserPrimaryOrg(user.id);
-    if (!primaryOrg && user.role !== UserRole.ADMIN) {
-      return NextResponse.json({ shipments: [] });
-    }
-
-    const whereClause: Record<string, unknown> = {};
-
-    // Organization Isolation
-    if (user.role !== UserRole.ADMIN) {
-      whereClause.organizationId = primaryOrg?.id;
-    }
-
-    // Driver Scoping
-    if (user.role === UserRole.DRIVER) {
-      whereClause.assignedDriverId = user.id;
-    }
+    const baseWhere = getShipmentsWhereClause(actor);
+    const whereClause: Record<string, unknown> = { ...baseWhere };
 
     if (statusParam) {
       whereClause.status = statusParam;
@@ -63,14 +54,63 @@ export async function GET(req: Request) {
 
     const shipments = await prisma.shipment.findMany({
       where: whereClause,
-      include: {
-        assignedVehicle: true,
-        assignedDevice: true,
-        assignedDriver: { select: { id: true, name: true, email: true } },
+      select: {
+        id: true,
+        organizationId: true,
+        trackingNumber: true,
+        title: true,
+        cargoType: true,
+        tempMin: true,
+        tempMax: true,
+        status: true,
+        originName: true,
+        destName: true,
+        latestTemperature: true,
+        latestRecordedAt: true,
+        createdAt: true,
+        updatedAt: true,
+        assignedVehicle: {
+          select: {
+            id: true,
+            licensePlate: true,
+            makeModel: true,
+            reeferType: true,
+            status: true,
+          },
+        },
+        assignedDevice: {
+          // Safe projection: NO apiKeyHash!
+          select: {
+            id: true,
+            deviceIdentifier: true,
+            hardwareModel: true,
+            status: true,
+            lastSeenAt: true,
+          },
+        },
+        assignedDriver: {
+          // Safe projection: NO passwordHash!
+          select: { id: true, name: true, email: true },
+        },
         alerts: {
           where: { status: "ACTIVE" },
+          select: {
+            id: true,
+            ruleCode: true,
+            severity: true,
+            status: true,
+            summary: true,
+          },
         },
-        rescueOpportunity: true,
+        rescueOpportunity: {
+          select: {
+            id: true,
+            status: true,
+            title: true,
+            urgency: true,
+            acceptedOfferId: true,
+          },
+        },
       },
       orderBy: { updatedAt: "desc" },
       take: 50,

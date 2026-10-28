@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
+import { getAuthorizedActor, getRescueOpportunitiesWhereClause } from "@/lib/auth/policy";
 import { createRescueOpportunity } from "@/lib/rescue";
-import { getUserPrimaryOrg, assertOrgAccess } from "@/lib/org";
-import { UserRole, RescueStatus } from "@prisma/client";
+import { assertOrgAccess } from "@/lib/org";
+import { UserRole } from "@prisma/client";
 import { AppError } from "@/lib/errors";
 
 const CreateOpportunitySchema = z.object({
@@ -22,56 +23,39 @@ const CreateOpportunitySchema = z.object({
 
 export async function GET() {
   try {
-    const user = await requireAuth();
-    const primaryOrg = await getUserPrimaryOrg(user.id);
-
-    if (user.role === UserRole.PARTNER && primaryOrg) {
-      // Rescue Partners see:
-      // 1. All OPEN or OFFERED rescue requests (publicly broadcast for bids)
-      // 2. Any rescue opportunity where THEIR organization has submitted an offer
-      const opportunities = await prisma.rescueOpportunity.findMany({
-        where: {
-          OR: [
-            { status: { in: [RescueStatus.OPEN, RescueStatus.OFFERED] } },
-            { offers: { some: { partnerOrgId: primaryOrg.id } } },
-          ],
-        },
-        include: {
-          shipment: {
-            select: {
-              trackingNumber: true,
-              originName: true,
-              destName: true,
-              latestTemperature: true,
-              latestRecordedAt: true,
-            },
-          },
-          // Only include offers submitted by THIS partner org (no leaking competitor offers!)
-          offers: {
-            where: { partnerOrgId: primaryOrg.id },
-            include: { submittedBy: { select: { id: true, name: true } } },
-          },
-          milestones: {
-            orderBy: { recordedAt: "asc" },
-          },
-        },
-        orderBy: { createdAt: "desc" },
-      });
-
-      return NextResponse.json({ opportunities });
+    const actor = await getAuthorizedActor();
+    if (!actor) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Fleet Operators and Admins
-    const whereClause: Record<string, unknown> = {};
-    if (user.role !== UserRole.ADMIN && primaryOrg) {
-      whereClause.organizationId = primaryOrg.id;
-    }
+    const whereClause = getRescueOpportunitiesWhereClause(actor);
+    const isPartner = actor.role === UserRole.PARTNER;
+    const offersWhere = isPartner && actor.primaryOrgId
+      ? { partnerOrgId: actor.primaryOrgId }
+      : {};
 
     const opportunities = await prisma.rescueOpportunity.findMany({
       where: whereClause,
-      include: {
+      select: {
+        id: true,
+        organizationId: true,
+        shipmentId: true,
+        title: true,
+        cargoDescription: true,
+        cargoWeightKg: true,
+        tempRequirementMin: true,
+        tempRequirementMax: true,
+        urgency: true,
+        targetLat: true,
+        targetLng: true,
+        maxBudget: isPartner ? null : true, // Redacted for competing partners
+        status: true,
+        acceptedOfferId: true,
+        createdAt: true,
+        updatedAt: true,
         shipment: {
           select: {
+            id: true,
             trackingNumber: true,
             title: true,
             cargoType: true,
@@ -82,7 +66,17 @@ export async function GET() {
           },
         },
         offers: {
-          include: {
+          where: offersWhere,
+          select: {
+            id: true,
+            partnerOrgId: true,
+            offerAmount: true,
+            capacityOfferedKg: true,
+            storageType: true,
+            estimatedEtaMinutes: true,
+            status: true,
+            notes: true,
+            createdAt: true,
             partnerOrg: {
               select: { id: true, name: true, slug: true },
             },
@@ -93,7 +87,13 @@ export async function GET() {
           orderBy: { createdAt: "desc" },
         },
         milestones: {
-          include: { actor: { select: { id: true, name: true } } },
+          select: {
+            id: true,
+            milestoneType: true,
+            notes: true,
+            recordedAt: true,
+            actor: { select: { id: true, name: true } },
+          },
           orderBy: { recordedAt: "asc" },
         },
       },

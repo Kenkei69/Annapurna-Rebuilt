@@ -2,6 +2,7 @@ import React from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
+import { getAuthorizedActor, getShipmentsWhereClause } from "@/lib/auth/policy";
 import { prisma } from "@/lib/db";
 import { AppShell } from "@/components/layout/AppShell";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -12,28 +13,99 @@ export default async function ShipmentsListPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const orgId = user.memberships[0]?.organizationId;
+  const actor = await getAuthorizedActor();
+  if (!actor) redirect("/login");
+
+  const shipmentsWhere = getShipmentsWhereClause(actor);
 
   const shipments = await prisma.shipment.findMany({
-    where: user.role === "ADMIN" ? {} : { organizationId: orgId },
-    include: {
-      assignedVehicle: true,
-      assignedDevice: true,
+    where: shipmentsWhere,
+    select: {
+      id: true,
+      organizationId: true,
+      trackingNumber: true,
+      title: true,
+      cargoType: true,
+      tempMin: true,
+      tempMax: true,
+      status: true,
+      originName: true,
+      destName: true,
+      latestTemperature: true,
+      latestRecordedAt: true,
+      createdAt: true,
+      updatedAt: true,
+      assignedVehicle: {
+        select: {
+          id: true,
+          licensePlate: true,
+          makeModel: true,
+          reeferType: true,
+          status: true,
+        },
+      },
+      assignedDevice: {
+        // Safe projection: NO apiKeyHash!
+        select: {
+          id: true,
+          deviceIdentifier: true,
+          hardwareModel: true,
+          status: true,
+          lastSeenAt: true,
+        },
+      },
       alerts: {
         where: { status: { in: [AlertStatus.ACTIVE, AlertStatus.ACKNOWLEDGED] } },
+        select: {
+          id: true,
+          ruleCode: true,
+          severity: true,
+          status: true,
+          summary: true,
+        },
       },
-      rescueOpportunity: true,
+      rescueOpportunity: {
+        select: {
+          id: true,
+          status: true,
+          title: true,
+          urgency: true,
+          acceptedOfferId: true,
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
 
-  const vehicles = await prisma.vehicle.findMany({
-    where: user.role === "ADMIN" ? {} : { organizationId: orgId },
-  });
+  // Safe device and vehicle list for dispatch dialogs
+  const resourceWhere = actor.primaryOrgId ? { organizationId: actor.primaryOrgId } : { id: "NONE" };
 
-  const devices = await prisma.device.findMany({
-    where: user.role === "ADMIN" ? {} : { organizationId: orgId },
-  });
+  const vehicles = actor.role === "OPERATOR" || actor.role === "ADMIN"
+    ? await prisma.vehicle.findMany({
+        where: resourceWhere,
+        select: {
+          id: true,
+          licensePlate: true,
+          makeModel: true,
+          reeferType: true,
+          status: true,
+        },
+      })
+    : [];
+
+  const devices = actor.role === "OPERATOR" || actor.role === "ADMIN"
+    ? await prisma.device.findMany({
+        where: resourceWhere,
+        // Safe projection: NO apiKeyHash!
+        select: {
+          id: true,
+          deviceIdentifier: true,
+          hardwareModel: true,
+          status: true,
+          lastSeenAt: true,
+        },
+      })
+    : [];
 
   return (
     <AppShell
