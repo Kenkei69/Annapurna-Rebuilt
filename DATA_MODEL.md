@@ -84,19 +84,46 @@ High-volume sensor time series.
 - `acknowledgedById`, `acknowledgedAt`, `ackNotes`: Operator acknowledgment tracking
 - `resolvedById`, `resolvedAt`, `resolutionNotes`: Resolution tracking
 
-### 7. `RescueOpportunity` & `RescueOffer`
+### 7. `RescuePartnerProfile`
+Partner facility profile registered by rescue organizations.
+- `organizationId`: UUID (Primary Key / Unique)
+- `facilityName`: String nullable (Facility / depot name)
+- `facilityType`: Enum (`COLD_STORAGE`, `EMERGENCY_REEFER`, `PROCESSING_DEPOT`, `MOBILE_DISTRIBUTION`)
+- `address`: String nullable
+- `latitude` / `longitude`: Float nullable
+- `capacityAvailableKg`: Float nullable (Must be > 0 when onboarded)
+- `tempRangeMin` / `tempRangeMax`: Float nullable (Operating range)
+- `contactEmail`, `contactPhone`: String nullable
+- `isActive`: Boolean (Default: false)
+- `onboardingComplete`: Boolean (Default: false, required before bidding)
+- `verificationStatus`: String (e.g. `UNVERIFIED_SELF_REPORTED`, `SELF_REPORTED_VERIFIED_LOCATION`)
+
+### 8. `RescueOpportunity` & `RescueOffer`
 - `RescueOpportunity.status`: Enum (`OPEN`, `OFFERED`, `ACCEPTED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`)
 - `RescueOpportunity.acceptedOfferId`: UUID nullable (Unique constraint guarantees single winner)
 - `RescueOffer.status`: Enum (`SUBMITTED`, `ACCEPTED`, `REJECTED`, `EXPIRED`)
+- `RescueOffer.offerAmount`: Float (Strictly positive quote in ₹)
+- `RescueOffer.capacityOfferedKg`: Float (Strictly positive weight in kg)
 
-### 8. `AuditEvent`
-Immutable operational history.
-- `action`: String (`SHIPMENT_CREATED`, `ALERT_ACKNOWLEDGED`, `RESCUE_OFFER_ACCEPTED`, etc.)
+### 9. `AuditEvent`
+Application-level append-only operational history.
+- `action`: String (`SHIPMENT_CREATED`, `ALERT_ACKNOWLEDGED`, `RESCUE_OFFER_ACCEPTED`, `PARTNER_ONBOARDING_COMPLETED`, etc.)
 - `actorId`, `actorEmail`: Identity of mutating user
 - `entityType`, `entityId`: Polymorphic target reference
 - `detailsJson`: JSON serialization of mutation parameters
 - `createdAt`: DateTime default now
 - **Indexes:** `@@index([organizationId, createdAt])`, `@@index([entityType, entityId])`
+
+---
+
+## Database Invariant Check Constraints (PostgreSQL)
+
+Versioned database migrations enforce data-integrity invariants directly at the database engine level:
+1. `chk_shipment_temp_limits`: `tempMin < tempMax` (Ensures thermal bands are strictly ascending)
+2. `chk_partner_capacity_positive`: `capacityAvailableKg IS NULL OR capacityAvailableKg > 0`
+3. `chk_partner_temp_limits`: `tempRangeMin IS NULL OR tempRangeMax IS NULL OR tempRangeMin < tempRangeMax`
+4. `chk_rescue_offer_amount_positive`: `offerAmount > 0` (Requires strictly positive pricing quote)
+5. `chk_rescue_offer_capacity_positive`: `capacityOfferedKg > 0` (Requires strictly positive capacity)
 
 ---
 

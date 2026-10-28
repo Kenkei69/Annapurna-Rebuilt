@@ -19,16 +19,31 @@ To execute all unit and integration tests:
 npm test
 ```
 
-### Verified Test Suites (16 / 16 Passing):
+### Verified Test Suites (31 / 31 Passing):
 ```
+✔ Partner Onboarding - Real onboarding lifecycle and bid qualification invariant
+✔ Cargo Rescue Concurrency - True PostgreSQL concurrent acceptance race condition
+✔ Cargo Rescue Concurrency - Idempotent re-acceptance of the same winning offer
 ✔ Integration Workflow: Complete End-to-End Operator -> Telemetry -> Alert -> Rescue Journey
 ✔ Shipment State Machine - Enforces valid transitions
 ✔ AI Heuristic Engine - Correctly computes warming gradient and action plan
 ✔ Auth Module - Password hashing and verification
 ✔ Auth Module - Session Token creation and valid verification
-✔ Auth Module - Tampered token signature is rejected
-✔ Auth Module - Expired token is rejected
+✔ Auth Module - Production secret configuration enforcement
+✔ Auth Module - Tampered token signature is rejected safely
+✔ Auth Module - Tampered payload with original signature is rejected
+✔ Auth Module - Expired token and exact expiry boundary are rejected
+✔ Auth Module - Non-numeric, null, missing, or invalid expiry is rejected
+✔ Auth Module - Malformed user identifier or unsupported role is rejected
+✔ Auth Module - Oversized tokens and malformed encodings are rejected safely
 ✔ Cargo Rescue Concurrency - Single accepted offer guarantees mutual exclusion
+✔ Database Safety - Refuses destructive reset in production environment
+✔ Database Safety - Refuses destructive reset without explicit flag
+✔ Database Safety - Refuses destructive reset if database URL is missing
+✔ Database Safety - Refuses reset targeting a database with production indicators
+✔ Database Safety - Allows reset only for explicitly designated local/test database
+✔ Database Configuration - getDatabaseUrl fails closed when DATABASE_URL is unset
+✔ Admin Provisioning - Password policy requires minimum 12 chars with complexity
 ✔ Device Authentication - Accepts valid provisioned API key
 ✔ Device Authentication - Rejects invalid or mismatched API key
 ✔ Device Authentication - Rejects non-existent device identifier
@@ -38,8 +53,8 @@ npm test
 ✔ Telemetry Edge Cases - Future timestamps (> 10m drift) are rejected
 ✔ Telemetry Edge Cases - Sequence deduplication prevents duplicate row creation
 
-ℹ tests 16
-ℹ pass 16
+ℹ tests 31
+ℹ pass 31
 ℹ fail 0
 ```
 
