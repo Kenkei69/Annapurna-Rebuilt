@@ -23,6 +23,7 @@ Configure the following environment variables in your Vercel Project Settings:
 | `DATABASE_URL` | Authoritative PostgreSQL connection string | **Yes** | `postgres://user:pass@host/db?sslmode=require` |
 | `SESSION_SECRET` | 32+ character HMAC secret for session cookies | **Yes** | `f6a9e10...` (Use `openssl rand -hex 32`) |
 | `NODE_ENV` | Runtime environment | **Yes** | `production` |
+| `ENABLE_SIMULATOR` | Lab simulator endpoint toggle (`true` / `false`) | No (Default: `false` in production) | `false` |
 | `GEMINI_API_KEY` | Google Gemini API key for advisory assistance | Optional | `AIzaSy...` (Falls back to expert system if omitted) |
 
 ---
@@ -58,7 +59,7 @@ Provision the initial production administrative user with strong credential poli
 ADMIN_EMAIL="admin@yourdomain.com" ADMIN_PASSWORD="YourStrongPassword123!" npm run admin:provision
 ```
 
-> **Safety Notice:** Destructive reset scripts (`npm run db:reset:demo`) and demo fixture seeds (`npm run db:seed`) are protected by `assertSafeForDestructiveReset` and will refuse to execute in production or against non-local databases. Never run demo reset in production.
+> **Safety Notice:** Destructive reset scripts (`npm run db:reset:demo`) are protected by structural `DATABASE_URL` safety verification (`assertSafeForDestructiveReset`). The guard structurally parses hostnames and database names, immediately refusing execution if targeting cloud providers (AWS RDS, Supabase, Neon) or databases not in the explicit disposable whitelist (`annapurna_dev`, `annapurna_test`). Never attempt demo reset in production.
 
 ---
 

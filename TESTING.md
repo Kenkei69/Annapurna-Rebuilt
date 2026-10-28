@@ -19,11 +19,14 @@ To execute all unit and integration tests:
 npm test
 ```
 
-### Verified Test Suites (31 / 31 Passing):
+### Verified Test Suites (36 / 36 Passing):
 ```
 ✔ Partner Onboarding - Real onboarding lifecycle and bid qualification invariant
 ✔ Cargo Rescue Concurrency - True PostgreSQL concurrent acceptance race condition
 ✔ Cargo Rescue Concurrency - Idempotent re-acceptance of the same winning offer
+✔ Priority 4: Rescue Lifecycle, Suitability Validation, Expiry Persistence & Atomic Completion
+✔ Shipment Authorization & Data Exposure - Comprehensive Isolation Policy
+✔ Priority 2 & 3: Telemetry Ingestion, Out-of-Order Safety, Simulator Isolation & Alert Lifecycle
 ✔ Integration Workflow: Complete End-to-End Operator -> Telemetry -> Alert -> Rescue Journey
 ✔ Shipment State Machine - Enforces valid transitions
 ✔ AI Heuristic Engine - Correctly computes warming gradient and action plan
@@ -41,6 +44,7 @@ npm test
 ✔ Database Safety - Refuses destructive reset without explicit flag
 ✔ Database Safety - Refuses destructive reset if database URL is missing
 ✔ Database Safety - Refuses reset targeting a database with production indicators
+✔ Database Safety - Credentials with test keywords do not bypass production database protection
 ✔ Database Safety - Allows reset only for explicitly designated local/test database
 ✔ Database Configuration - getDatabaseUrl fails closed when DATABASE_URL is unset
 ✔ Admin Provisioning - Password policy requires minimum 12 chars with complexity
@@ -52,11 +56,24 @@ npm test
 ✔ Telemetry Module - Device API key hashing is deterministic SHA-256
 ✔ Telemetry Edge Cases - Future timestamps (> 10m drift) are rejected
 ✔ Telemetry Edge Cases - Sequence deduplication prevents duplicate row creation
+✔ Telemetry Isolation - Ingesting simulated telemetry into operational device is rejected
 
-ℹ tests 31
-ℹ pass 31
+ℹ tests 36
+ℹ pass 36
 ℹ fail 0
 ```
+
+---
+
+## Continuous Integration Pipeline (`ci/ci.yml`)
+
+The repository includes a complete GitHub Actions CI pipeline configuration in `ci/ci.yml` (deployable to `.github/workflows/ci.yml`) running on `ubuntu-latest` with a dedicated PostgreSQL 16 service container:
+1. **Linting & Code Quality:** `npm run lint` (ESLint Next.js core-web-vitals)
+2. **Type Checking:** `npx tsc --noEmit`
+3. **Database Migrations:** `npx prisma migrate deploy`
+4. **Database Seeding & Invariant Verification:** `npm run db:init:essential`
+5. **Automated Test Suite:** `npm test` (all 36 unit and integration test assertions)
+6. **Production Build:** `npm run build` (Next.js Turbopack application bundle)
 
 ---
 

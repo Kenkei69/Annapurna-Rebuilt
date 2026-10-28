@@ -84,7 +84,7 @@ Open [http://localhost:3000](http://localhost:3000) to access the landing page o
 ```bash
 npm test
 ```
-All 31 unit and integration tests across 6 suites will execute and verify tenant isolation, device auth, deduplication, alert generation, partner onboarding gates, and single-winner rescue transactions against PostgreSQL.
+All 36 unit and integration tests across 8 suites will execute and verify tenant isolation, device auth, out-of-order telemetry safety, simulator isolation, alert escalation chains, partner onboarding gates, and single-winner rescue transactions against PostgreSQL.
 
 ---
 
