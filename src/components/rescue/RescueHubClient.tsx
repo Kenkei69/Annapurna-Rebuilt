@@ -16,13 +16,33 @@ import {
   Award,
   Check,
   MapPin,
+  AlertTriangle,
 } from "lucide-react";
+
+export interface PartnerProfileData {
+  id?: string;
+  organizationId?: string;
+  facilityName?: string | null;
+  facilityType?: string;
+  address?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  capacityAvailableKg?: number | null;
+  tempRangeMin?: number | null;
+  tempRangeMax?: number | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  isActive?: boolean;
+  onboardingComplete?: boolean;
+  verificationStatus?: string;
+}
 
 interface RescueHubProps {
   opportunities: any[];
   userRole: string;
   userOrgId: string;
   isPartner: boolean;
+  partnerProfile?: PartnerProfileData | null;
 }
 
 export function RescueHubClient({
@@ -30,11 +50,46 @@ export function RescueHubClient({
   userRole,
   userOrgId,
   isPartner,
+  partnerProfile,
 }: RescueHubProps) {
   const router = useRouter();
   const [selectedOppId, setSelectedOppId] = useState<string>(
     opportunities[0]?.id || ""
   );
+
+  // Partner Onboarding Modal State
+  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
+  const [onboardFacilityName, setOnboardFacilityName] = useState(
+    partnerProfile?.facilityName || ""
+  );
+  const [onboardFacilityType, setOnboardFacilityType] = useState(
+    partnerProfile?.facilityType || "COLD_STORAGE"
+  );
+  const [onboardAddress, setOnboardAddress] = useState(
+    partnerProfile?.address || ""
+  );
+  const [onboardLat, setOnboardLat] = useState(
+    partnerProfile?.latitude ?? 18.7557
+  );
+  const [onboardLng, setOnboardLng] = useState(
+    partnerProfile?.longitude ?? 73.4091
+  );
+  const [onboardCapacityKg, setOnboardCapacityKg] = useState(
+    partnerProfile?.capacityAvailableKg ?? 25000
+  );
+  const [onboardTempMin, setOnboardTempMin] = useState(
+    partnerProfile?.tempRangeMin ?? -25.0
+  );
+  const [onboardTempMax, setOnboardTempMax] = useState(
+    partnerProfile?.tempRangeMax ?? 10.0
+  );
+  const [onboardPhone, setOnboardPhone] = useState(
+    partnerProfile?.contactPhone || "+91-20-273000"
+  );
+  const [onboardEmail, setOnboardEmail] = useState(
+    partnerProfile?.contactEmail || ""
+  );
+  const [submittingOnboarding, setSubmittingOnboarding] = useState(false);
 
   // Partner Offer Form State
   const [offerAmount, setOfferAmount] = useState(15000);
@@ -61,10 +116,52 @@ export function RescueHubClient({
 
   const selectedOpp = opportunities.find((o) => o.id === selectedOppId);
 
+  // Save Partner Onboarding
+  const handleSaveOnboarding = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSubmittingOnboarding(true);
+      const res = await fetch("/api/partner/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          facilityName: onboardFacilityName,
+          facilityType: onboardFacilityType,
+          address: onboardAddress,
+          latitude: Number(onboardLat),
+          longitude: Number(onboardLng),
+          capacityAvailableKg: Number(onboardCapacityKg),
+          tempRangeMin: Number(onboardTempMin),
+          tempRangeMax: Number(onboardTempMax),
+          contactPhone: onboardPhone,
+          contactEmail: onboardEmail,
+        }),
+      });
+
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || "Failed to save onboarding profile");
+      }
+
+      alert("Facility onboarding profile successfully verified and activated!");
+      setShowOnboardingModal(false);
+      router.refresh();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setSubmittingOnboarding(false);
+    }
+  };
+
   // Submit Offer
   const handleSubmitOffer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedOpp) return;
+    if (isPartner && !partnerProfile?.onboardingComplete) {
+      alert("Please complete facility onboarding before submitting offers.");
+      setShowOnboardingModal(true);
+      return;
+    }
     try {
       setSubmittingOffer(true);
       const res = await fetch(`/api/rescue/opportunities/${selectedOpp.id}/offers`, {
@@ -189,6 +286,29 @@ export function RescueHubClient({
           </p>
         </div>
       </div>
+
+      {/* Partner Onboarding Incomplete Banner */}
+      {isPartner && !partnerProfile?.onboardingComplete && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={20} />
+            <div>
+              <h4 className="text-sm font-bold text-amber-900">
+                Partner Facility Onboarding Required
+              </h4>
+              <p className="text-xs text-amber-700 mt-0.5">
+                To submit bids on cold-chain rescue opportunities, your partner organization must register its verified facility type, coordinates, available capacity, and thermal operating range.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowOnboardingModal(true)}
+            className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-lg shrink-0 shadow-xs cursor-pointer"
+          >
+            Complete Facility Onboarding
+          </button>
+        </div>
+      )}
 
       {opportunities.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-xl p-12 text-center text-slate-400">
@@ -333,7 +453,7 @@ export function RescueHubClient({
                 <div className="divide-y divide-slate-100">
                   {!selectedOpp.offers || selectedOpp.offers.length === 0 ? (
                     <div className="p-8 text-center text-slate-400 text-xs">
-                      No offers submitted yet. Certified partners have received notification.
+                      No offers submitted yet. Active rescue partners have received notification.
                     </div>
                   ) : (
                     selectedOpp.offers.map((offer: any) => {
@@ -407,71 +527,90 @@ export function RescueHubClient({
                     </h3>
                   </div>
 
-                  <form onSubmit={handleSubmitOffer} className="space-y-4 text-xs">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      <div>
-                        <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                          Quote Amount (₹)
-                        </label>
-                        <input
-                          type="number"
-                          required
-                          value={offerAmount}
-                          onChange={(e) => setOfferAmount(Number(e.target.value))}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono text-slate-900"
-                        />
+                  {!partnerProfile?.onboardingComplete ? (
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 space-y-3">
+                      <div className="font-bold flex items-center gap-1.5 text-amber-900">
+                        <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+                        <span>Facility Onboarding Incomplete</span>
                       </div>
-
-                      <div>
-                        <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                          Offered Capacity (kg)
-                        </label>
-                        <input
-                          type="number"
-                          required
-                          value={capacityKg}
-                          onChange={(e) => setCapacityKg(Number(e.target.value))}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono text-slate-900"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                          Estimated ETA (Minutes)
-                        </label>
-                        <input
-                          type="number"
-                          required
-                          value={etaMinutes}
-                          onChange={(e) => setEtaMinutes(Number(e.target.value))}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono text-slate-900"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                        Facility Readiness &amp; Action Notes
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={offerNotes}
-                        onChange={(e) => setOfferNotes(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900"
-                      />
-                    </div>
-
-                    <div className="flex justify-end">
+                      <p>
+                        In accordance with cold-chain verified safety protocols, rescue partners must complete their facility profile and verified capacity before submitting rescue offers.
+                      </p>
                       <button
-                        type="submit"
-                        disabled={submittingOffer}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg shadow-xs"
+                        type="button"
+                        onClick={() => setShowOnboardingModal(true)}
+                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded text-xs shadow-xs cursor-pointer"
                       >
-                        {submittingOffer ? "Submitting Offer..." : "Submit Capacity Proposal"}
+                        Complete Facility Onboarding Now
                       </button>
                     </div>
-                  </form>
+                  ) : (
+                    <form onSubmit={handleSubmitOffer} className="space-y-4 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                            Quote Amount (₹)
+                          </label>
+                          <input
+                            type="number"
+                            required
+                            value={offerAmount}
+                            onChange={(e) => setOfferAmount(Number(e.target.value))}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono text-slate-900"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                            Offered Capacity (kg)
+                          </label>
+                          <input
+                            type="number"
+                            required
+                            value={capacityKg}
+                            onChange={(e) => setCapacityKg(Number(e.target.value))}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono text-slate-900"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                            Estimated ETA (Minutes)
+                          </label>
+                          <input
+                            type="number"
+                            required
+                            value={etaMinutes}
+                            onChange={(e) => setEtaMinutes(Number(e.target.value))}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono text-slate-900"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                          Facility Readiness &amp; Action Notes
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={offerNotes}
+                          onChange={(e) => setOfferNotes(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900"
+                        />
+                      </div>
+
+                      <div className="flex justify-end">
+                        <button
+                          type="submit"
+                          disabled={submittingOffer}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg shadow-xs"
+                        >
+                          {submittingOffer ? "Submitting Offer..." : "Submit Capacity Proposal"}
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </div>
               )}
 
@@ -590,6 +729,200 @@ export function RescueHubClient({
                   className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold shadow-xs"
                 >
                   {submittingComplete ? "Finalizing..." : "Finalize & Mark Rescued"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Partner Facility Onboarding Modal */}
+      {showOnboardingModal && (
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+              <div className="flex items-center gap-2">
+                <Building2 size={18} className="text-amber-600" />
+                <h3 className="text-base font-bold text-slate-900">
+                  Rescue Partner Facility Onboarding
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowOnboardingModal(false)}
+                className="text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 mb-4">
+              Register your verified cold-chain facility profile, available capacity, and thermal operating range to unlock rescue offer bidding.
+            </p>
+
+            <form onSubmit={handleSaveOnboarding} className="space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                    Facility Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={onboardFacilityName}
+                    onChange={(e) => setOnboardFacilityName(e.target.value)}
+                    placeholder="e.g. Sahyadri Cold Hub"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                    Facility Type
+                  </label>
+                  <select
+                    value={onboardFacilityType}
+                    onChange={(e) => setOnboardFacilityType(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900 bg-white"
+                  >
+                    <option value="COLD_STORAGE">Cold Storage</option>
+                    <option value="EMERGENCY_REEFER">Emergency Reefer</option>
+                    <option value="PROCESSING_DEPOT">Processing Depot</option>
+                    <option value="MOBILE_DISTRIBUTION">Mobile Distribution</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Physical Address
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={onboardAddress}
+                  onChange={(e) => setOnboardAddress(e.target.value)}
+                  placeholder="Street address, city, pin code"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                    Latitude
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    required
+                    value={onboardLat}
+                    onChange={(e) => setOnboardLat(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                    Longitude
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    required
+                    value={onboardLng}
+                    onChange={(e) => setOnboardLng(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                    Verified Capacity (kg)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={onboardCapacityKg}
+                    onChange={(e) => setOnboardCapacityKg(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                    Min Temp (°C)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    required
+                    value={onboardTempMin}
+                    onChange={(e) => setOnboardTempMin(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                    Max Temp (°C)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    required
+                    value={onboardTempMax}
+                    onChange={(e) => setOnboardTempMax(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                    Contact Phone
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={onboardPhone}
+                    onChange={(e) => setOnboardPhone(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                    Contact Email
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={onboardEmail}
+                    onChange={(e) => setOnboardEmail(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowOnboardingModal(false)}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingOnboarding}
+                  className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-semibold shadow-xs cursor-pointer"
+                >
+                  {submittingOnboarding ? "Saving Profile..." : "Verify & Activate Profile"}
                 </button>
               </div>
             </form>

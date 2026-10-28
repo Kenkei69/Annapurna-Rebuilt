@@ -1,18 +1,37 @@
 import { prisma } from "../db";
 import { OrgMemberRole, OrgType, UserRole } from "@prisma/client";
+import { ForbiddenError, NotFoundError } from "../errors";
+
+export interface AssertOrgAccessOptions {
+  allowedMemberRoles?: OrgMemberRole[];
+  mode?: "READ_AUDIT" | "MUTATE_OPERATIONAL";
+}
 
 export async function assertOrgAccess(
   userId: string,
   userRole: UserRole,
   organizationId: string,
-  allowedMemberRoles?: OrgMemberRole[]
+  optionsOrRoles?: OrgMemberRole[] | AssertOrgAccessOptions
 ) {
-  // Global ADMIN can access all organizations for audit/maintenance
-  if (userRole === UserRole.ADMIN) {
+  let allowedMemberRoles: OrgMemberRole[] | undefined;
+  let mode: "READ_AUDIT" | "MUTATE_OPERATIONAL" = "MUTATE_OPERATIONAL";
+
+  if (Array.isArray(optionsOrRoles)) {
+    allowedMemberRoles = optionsOrRoles;
+  } else if (optionsOrRoles) {
+    allowedMemberRoles = optionsOrRoles.allowedMemberRoles;
+    if (optionsOrRoles.mode) {
+      mode = optionsOrRoles.mode;
+    }
+  }
+
+  // Global ADMIN can read organization data for audit/monitoring,
+  // but CANNOT mutate operational records without explicit membership.
+  if (userRole === UserRole.ADMIN && mode === "READ_AUDIT") {
     const org = await prisma.organization.findUnique({
       where: { id: organizationId },
     });
-    if (!org) throw new Error("ORGANIZATION_NOT_FOUND");
+    if (!org) throw new NotFoundError("ORGANIZATION_NOT_FOUND");
     return { organization: org, membership: null };
   }
 
@@ -29,11 +48,15 @@ export async function assertOrgAccess(
   });
 
   if (!membership) {
-    throw new Error("ORG_ACCESS_DENIED");
+    throw new ForbiddenError(
+      "ORG_ACCESS_DENIED: User is not an active member of this organization."
+    );
   }
 
   if (allowedMemberRoles && !allowedMemberRoles.includes(membership.orgRole)) {
-    throw new Error("ORG_ROLE_FORBIDDEN");
+    throw new ForbiddenError(
+      `ORG_ROLE_FORBIDDEN: Requires member role in [${allowedMemberRoles.join(", ")}].`
+    );
   }
 
   return {

@@ -1,31 +1,10 @@
 import { prisma } from "../db";
 import { ShipmentStatus } from "@prisma/client";
 import { recordAuditEvent } from "../audit";
+import { canTransitionShipment } from "../lifecycle";
+import { NotFoundError, ConflictError, ValidationError } from "../errors";
 
-export const ALLOWED_SHIPMENT_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
-  [ShipmentStatus.DRAFT]: [ShipmentStatus.DISPATCHED, ShipmentStatus.CANCELLED],
-  [ShipmentStatus.DISPATCHED]: [ShipmentStatus.IN_TRANSIT, ShipmentStatus.CANCELLED],
-  [ShipmentStatus.IN_TRANSIT]: [
-    ShipmentStatus.ALERTED,
-    ShipmentStatus.RESCUE_PENDING,
-    ShipmentStatus.DELIVERED,
-    ShipmentStatus.CANCELLED,
-  ],
-  [ShipmentStatus.ALERTED]: [
-    ShipmentStatus.IN_TRANSIT,
-    ShipmentStatus.RESCUE_PENDING,
-    ShipmentStatus.DELIVERED,
-    ShipmentStatus.CANCELLED,
-  ],
-  [ShipmentStatus.RESCUE_PENDING]: [ShipmentStatus.RESCUED, ShipmentStatus.CANCELLED],
-  [ShipmentStatus.RESCUED]: [ShipmentStatus.DELIVERED, ShipmentStatus.CANCELLED],
-  [ShipmentStatus.DELIVERED]: [],
-  [ShipmentStatus.CANCELLED]: [],
-};
-
-export function canTransitionShipment(current: ShipmentStatus, target: ShipmentStatus): boolean {
-  return ALLOWED_SHIPMENT_TRANSITIONS[current]?.includes(target) ?? false;
-}
+export { canTransitionShipment };
 
 export function generateTrackingNumber(): string {
   const dateStr = new Date().toISOString().slice(2, 10).replace(/-/g, "");
@@ -53,9 +32,50 @@ export async function createShipment(params: {
   actorId?: string;
   actorEmail?: string;
 }) {
+  if (params.tempMin >= params.tempMax) {
+    throw new ValidationError("tempMin must be strictly less than tempMax.");
+  }
+
   const trackingNumber = generateTrackingNumber();
 
   return prisma.$transaction(async (tx) => {
+    // Validate vehicle belongs to same organization
+    if (params.assignedVehicleId) {
+      const v = await tx.vehicle.findUnique({
+        where: { id: params.assignedVehicleId },
+        select: { organizationId: true },
+      });
+      if (!v || v.organizationId !== params.organizationId) {
+        throw new ValidationError("Assigned vehicle does not belong to the shipment's organization.");
+      }
+    }
+
+    // Validate device belongs to same organization
+    if (params.assignedDeviceId) {
+      const d = await tx.device.findUnique({
+        where: { id: params.assignedDeviceId },
+        select: { organizationId: true },
+      });
+      if (!d || d.organizationId !== params.organizationId) {
+        throw new ValidationError("Assigned device does not belong to the shipment's organization.");
+      }
+    }
+
+    // Validate driver belongs to same organization
+    if (params.assignedDriverId) {
+      const m = await tx.membership.findUnique({
+        where: {
+          userId_organizationId: {
+            userId: params.assignedDriverId,
+            organizationId: params.organizationId,
+          },
+        },
+      });
+      if (!m) {
+        throw new ValidationError("Assigned driver is not a member of the shipment's organization.");
+      }
+    }
+
     const shipment = await tx.shipment.create({
       data: {
         organizationId: params.organizationId,
@@ -114,10 +134,10 @@ export async function transitionShipmentStatus(params: {
       where: { id: params.shipmentId },
     });
 
-    if (!shipment) throw new Error("SHIPMENT_NOT_FOUND");
+    if (!shipment) throw new NotFoundError("SHIPMENT_NOT_FOUND");
 
     if (!canTransitionShipment(shipment.status, params.targetStatus)) {
-      throw new Error(
+      throw new ConflictError(
         `INVALID_TRANSITION: Cannot transition shipment from ${shipment.status} to ${params.targetStatus}`
       );
     }

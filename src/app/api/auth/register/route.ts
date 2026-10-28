@@ -67,20 +67,24 @@ export async function POST(req: Request) {
         },
       });
 
-      // If rescue partner, initialize default profile
+      // If rescue partner, initialize unverified profile awaiting onboarding
       if (orgType === OrgType.RESCUE_PARTNER) {
         await tx.rescuePartnerProfile.create({
           data: {
             organizationId: o.id,
-            facilityName: `${data.organizationName} Depot`,
+            facilityName: `${data.organizationName} Facility`,
             facilityType: "COLD_STORAGE",
-            address: "Pending Address Update",
-            latitude: 19.076,
-            longitude: 72.877,
-            capacityAvailableKg: 10000,
-            tempRangeMin: -20.0,
-            tempRangeMax: 10.0,
+            address: null,
+            latitude: null,
+            longitude: null,
+            capacityAvailableKg: null,
+            tempRangeMin: null,
+            tempRangeMax: null,
             contactEmail: u.email,
+            contactPhone: null,
+            isActive: false,
+            onboardingComplete: false,
+            verificationStatus: "UNVERIFIED_SELF_REPORTED",
           },
         });
       }

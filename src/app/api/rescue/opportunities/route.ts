@@ -5,6 +5,7 @@ import { requireAuth } from "@/lib/auth";
 import { createRescueOpportunity } from "@/lib/rescue";
 import { getUserPrimaryOrg, assertOrgAccess } from "@/lib/org";
 import { UserRole, RescueStatus } from "@prisma/client";
+import { AppError } from "@/lib/errors";
 
 const CreateOpportunitySchema = z.object({
   shipmentId: z.string(),
@@ -142,7 +143,10 @@ export async function POST(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: "Validation failed", details: err.errors }, { status: 400 });
     }
+    if (err instanceof AppError) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: err.statusCode });
+    }
     console.error("Create rescue opportunity error:", err);
-    return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }
