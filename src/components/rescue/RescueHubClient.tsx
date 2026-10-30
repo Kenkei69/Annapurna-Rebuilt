@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ToastBanner, ToastMessage } from "@/components/ui/ToastBanner";
+import { safeFetch } from "@/lib/api-client";
 import {
   LifeBuoy,
   Building2,
@@ -108,6 +109,17 @@ export function RescueHubClient({
   const [submittingComplete, setSubmittingComplete] = useState(false);
   const [showCompleteModal, setShowCompleteModal] = useState(false);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowOnboardingModal(false);
+        setShowCompleteModal(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   const selectedOpp = opportunities.find((o) => o.id === selectedOppId);
 
   // Save Partner Onboarding
@@ -123,7 +135,7 @@ export function RescueHubClient({
 
     try {
       setSubmittingOnboarding(true);
-      const res = await fetch("/api/partner/profile", {
+      const res = await safeFetch("/api/partner/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -141,8 +153,7 @@ export function RescueHubClient({
       });
 
       if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.error || "Failed to save onboarding profile");
+        throw new Error(res.error || "Failed to save onboarding profile");
       }
 
       setToast({
@@ -179,7 +190,7 @@ export function RescueHubClient({
     }
     try {
       setSubmittingOffer(true);
-      const res = await fetch(`/api/rescue/opportunities/${selectedOpp.id}/offers`, {
+      const res = await safeFetch(`/api/rescue/opportunities/${selectedOpp.id}/offers`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -192,8 +203,7 @@ export function RescueHubClient({
       });
 
       if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.error || "Failed to submit offer");
+        throw new Error(res.error || "Failed to submit offer");
       }
 
       setToast({
@@ -217,15 +227,14 @@ export function RescueHubClient({
     if (!selectedOpp) return;
     try {
       setAcceptingOfferId(offerId);
-      const res = await fetch(`/api/rescue/opportunities/${selectedOpp.id}/accept`, {
+      const res = await safeFetch(`/api/rescue/opportunities/${selectedOpp.id}/accept`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ offerId }),
       });
 
       if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.error || "Failed to accept offer");
+        throw new Error(res.error || "Failed to accept offer");
       }
 
       setToast({
@@ -246,7 +255,7 @@ export function RescueHubClient({
     if (!selectedOpp) return;
     try {
       setSubmittingMilestone(true);
-      const res = await fetch(`/api/rescue/opportunities/${selectedOpp.id}/milestones`, {
+      const res = await safeFetch(`/api/rescue/opportunities/${selectedOpp.id}/milestones`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -256,8 +265,7 @@ export function RescueHubClient({
       });
 
       if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.error || "Failed to record milestone");
+        throw new Error(res.error || "Failed to record milestone");
       }
 
       setToast({
@@ -287,7 +295,7 @@ export function RescueHubClient({
 
     try {
       setSubmittingComplete(true);
-      const res = await fetch(`/api/rescue/opportunities/${selectedOpp.id}/complete`, {
+      const res = await safeFetch(`/api/rescue/opportunities/${selectedOpp.id}/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -296,8 +304,7 @@ export function RescueHubClient({
       });
 
       if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.error || "Failed to complete rescue");
+        throw new Error(res.error || "Failed to complete rescue");
       }
 
       setToast({

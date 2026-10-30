@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { TelemetryChart } from "@/components/charts/TelemetryChart";
 import { ToastBanner, ToastMessage } from "@/components/ui/ToastBanner";
+import { safeFetch } from "@/lib/api-client";
 import {
   Thermometer,
   ShieldAlert,
@@ -61,6 +62,17 @@ export function ShipmentDetailClient({
   const [minutesSinceReading, setMinutesSinceReading] = useState<number | null>(null);
 
   useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowRescueModal(false);
+        setActingAlertId(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  useEffect(() => {
     const updateAge = () => {
       if (shipment.latestRecordedAt) {
         const latest = new Date(shipment.latestRecordedAt).getTime();
@@ -85,7 +97,7 @@ export function ShipmentDetailClient({
   const runAiAnalysis = async () => {
     try {
       setAiLoading(true);
-      const res = await fetch("/api/ai/analyze-incident", {
+      const res = await safeFetch("/api/ai/analyze-incident", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -103,9 +115,10 @@ export function ShipmentDetailClient({
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "AI Analysis failed");
-      setAiResult(data.analysis);
+      if (!res.ok || !res.data) {
+        throw new Error(res.error || "AI Analysis failed");
+      }
+      setAiResult(res.data.analysis);
       setToast({ type: "success", message: "AI Heuristic incident assessment updated." });
     } catch (err: any) {
       console.error("AI Analysis error:", err);
@@ -129,14 +142,13 @@ export function ShipmentDetailClient({
   const handleAcknowledgeAlert = async (alertId: string) => {
     try {
       setAlertActionLoading(true);
-      const res = await fetch(`/api/alerts/${alertId}/acknowledge`, {
+      const res = await safeFetch(`/api/alerts/${alertId}/acknowledge`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notes: alertNotes || "Acknowledged by operator in control room." }),
       });
       if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.error || "Failed to acknowledge");
+        throw new Error(res.error || "Failed to acknowledge");
       }
       setActingAlertId(null);
       setAlertNotes("");
@@ -160,14 +172,13 @@ export function ShipmentDetailClient({
     }
     try {
       setAlertActionLoading(true);
-      const res = await fetch(`/api/alerts/${alertId}/resolve`, {
+      const res = await safeFetch(`/api/alerts/${alertId}/resolve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ resolutionNotes: alertNotes }),
       });
       if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.error || "Failed to resolve");
+        throw new Error(res.error || "Failed to resolve");
       }
       setActingAlertId(null);
       setAlertNotes("");
@@ -185,7 +196,7 @@ export function ShipmentDetailClient({
     e.preventDefault();
     try {
       setRescueLoading(true);
-      const res = await fetch("/api/rescue/opportunities", {
+      const res = await safeFetch("/api/rescue/opportunities", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -201,8 +212,7 @@ export function ShipmentDetailClient({
       });
 
       if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.error || "Failed to create rescue opportunity");
+        throw new Error(res.error || "Failed to create rescue opportunity");
       }
 
       setShowRescueModal(false);
@@ -220,14 +230,13 @@ export function ShipmentDetailClient({
   const handleTransition = async (targetStatus: string) => {
     try {
       setTransitionLoading(true);
-      const res = await fetch(`/api/shipments/${shipment.id}/transition`, {
+      const res = await safeFetch(`/api/shipments/${shipment.id}/transition`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ targetStatus, notes: `Manual transition to ${targetStatus}` }),
       });
       if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.error || "Transition failed");
+        throw new Error(res.error || "Transition failed");
       }
       setToast({ type: "success", message: `Shipment status updated to ${targetStatus}.` });
       router.refresh();
@@ -376,11 +385,11 @@ export function ShipmentDetailClient({
             {minutesSinceReading === null ? (
               <span className="text-slate-400 font-medium">Awaiting initial sensor transmission</span>
             ) : isStale ? (
-              <span className="text-amber-700 font-semibold">Stale: Device connectivity delayed</span>
+              <span className="text-amber-700 font-semibold">Stale: Telemetry packet delayed ({minutesSinceReading}m ago)</span>
             ) : (
-              <span className="text-emerald-700 font-medium flex items-center gap-1.5">
-                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                Authenticated edge stream active
+              <span className="text-slate-700 font-medium flex items-center gap-1.5">
+                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+                Recent reading recorded ({minutesSinceReading === 0 ? "just now" : `${minutesSinceReading}m ago`})
               </span>
             )}
           </div>
