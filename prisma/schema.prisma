@@ -181,6 +181,7 @@ model Device {
   telemetryReadings TelemetryReading[]
 
   @@index([organizationId])
+  @@index([status, isSimulated])
 }
 
 model Shipment {
@@ -222,6 +223,7 @@ model Shipment {
   @@index([organizationId])
   @@index([status])
   @@index([assignedDeviceId])
+  @@index([status, latestRecordedAt])
 }
 
 model TelemetryReading {
@@ -278,6 +280,7 @@ model Alert {
   @@index([shipmentId])
   @@index([status])
   @@index([escalatedFromId])
+  @@index([shipmentId, ruleCode, status])
 }
 
 model RescueOpportunity {
@@ -389,3 +392,14 @@ model AuditEvent {
   @@index([organizationId, createdAt])
   @@index([entityType, entityId])
 }
+
+model TelemetryScanCursor {
+  id                  String    @id @default("gap-evaluation")
+  lastShipmentId      String?
+  lockedUntil         DateTime?
+  lockedBy            String?
+  lastScanStartedAt   DateTime?
+  lastScanCompletedAt DateTime?
+  updatedAt           DateTime  @updatedAt
+}
+

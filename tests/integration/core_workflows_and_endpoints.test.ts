@@ -7,6 +7,7 @@ import { POST as evaluateGaps } from "../../src/app/api/telemetry/evaluate-gaps/
 import { PATCH as updateDevice } from "../../src/app/api/devices/[id]/route";
 import { GET as getOrgMembers } from "../../src/app/api/org/members/route";
 import { PATCH as updateOrgSettings } from "../../src/app/api/org/settings/route";
+import { GET as getPublicTrack } from "../../src/app/api/shipments/public-track/route";
 import { hashPassword, createSessionToken, authCookieConfig } from "../../src/lib/auth";
 import { UserRole, OrgType, OrgMemberRole, DeviceStatus, ShipmentStatus } from "@prisma/client";
 
@@ -206,5 +207,44 @@ test("Phase 2 Core Workflows: Health, Readiness, Device Lifecycle, Gaps & Org Ma
     assert.equal(updateOrgRes.status, 200);
     const updatedOrgData = await updateOrgRes.json();
     assert.equal(updatedOrgData.organization.name, `Updated ${tenantOrg.name}`);
+  });
+
+  await t.test("Public tracking endpoint returns sanitized data and denies unmapped requests", async () => {
+    const trackShipment = await prisma.shipment.create({
+      data: {
+        organizationId: tenantOrg.id,
+        trackingNumber: `APN-TRACK-${testId}`,
+        title: "Trackable Cargo Consignment",
+        cargoType: "Produce",
+        tempMin: 2.0,
+        tempMax: 6.0,
+        originName: "Nashik Hub",
+        destName: "Mumbai Port",
+        status: ShipmentStatus.IN_TRANSIT,
+      },
+    });
+
+    // 1. Missing tracking number parameter -> 400
+    const emptyReq = new Request("http://localhost/api/shipments/public-track");
+    const emptyRes = await getPublicTrack(emptyReq);
+    assert.equal(emptyRes.status, 400);
+
+    // 2. Non-existent tracking number -> 404
+    const notFoundReq = new Request("http://localhost/api/shipments/public-track?trackingNumber=APN-NONEXISTENT");
+    const notFoundRes = await getPublicTrack(notFoundReq);
+    assert.equal(notFoundRes.status, 404);
+
+    // 3. Valid tracking number -> 200 with strictly sanitized projection
+    const validReq = new Request(`http://localhost/api/shipments/public-track?trackingNumber=${trackShipment.trackingNumber}`);
+    const validRes = await getPublicTrack(validReq);
+    assert.equal(validRes.status, 200);
+    const validData = await validRes.json();
+    assert.ok(validData.success);
+    assert.equal(validData.shipment.trackingNumber, trackShipment.trackingNumber);
+    assert.equal(validData.shipment.title, trackShipment.title);
+    // Invariant: Zero secret tokens or internal database IDs leaked
+    assert.equal((validData.shipment as any).passwordHash, undefined);
+    assert.equal((validData.shipment as any).apiKeyHash, undefined);
+    assert.equal((validData.shipment as any).organizationId, undefined);
   });
 });

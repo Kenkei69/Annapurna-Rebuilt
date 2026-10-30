@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 
 const SCREENSHOTS_DIR = "/home/runner/workspace/Annapurna-Rebuilt/docs/screenshots";
-const convId = process.env.ANTIGRAVITY_CONVERSATION_ID || "5e140e3e-7557-442a-9933-c19d7de93619";
+const convId = process.env.ANTIGRAVITY_CONVERSATION_ID || "17a6e97b-817a-4112-a9fd-9187fcae1516";
 const ARTIFACT_DIR = `/home/runner/.gemini/antigravity-cli/brain/${convId}/screenshots`;
 
 fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
@@ -153,6 +153,11 @@ async function main() {
       { name: "audit-desktop", url: "http://localhost:3000/audit", width: 1440, height: 900 },
       { name: "devices-desktop", url: "http://localhost:3000/devices", width: 1440, height: 900 },
       { name: "fleet-desktop", url: "http://localhost:3000/fleet", width: 1440, height: 900 },
+      { name: "analytics-desktop", url: "http://localhost:3000/analytics", width: 1440, height: 900 },
+      { name: "features-desktop", url: "http://localhost:3000/features", width: 1440, height: 900 },
+      { name: "architecture-desktop", url: "http://localhost:3000/architecture", width: 1440, height: 900 },
+      { name: "tracking-desktop", url: "http://localhost:3000/tracking", width: 1440, height: 900 },
+      { name: "bidding-desktop", url: "http://localhost:3000/bidding", width: 1440, height: 900 },
       { name: "org-desktop", url: "http://localhost:3000/org", width: 1440, height: 900 },
       { name: "driver-desktop", url: "http://localhost:3000/driver", width: 1440, height: 900, cookie: driverCookieValue },
     ];

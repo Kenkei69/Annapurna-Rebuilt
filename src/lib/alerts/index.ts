@@ -2,6 +2,7 @@ import { prisma } from "../db";
 import {
   AlertSeverity,
   AlertStatus,
+  DeviceStatus,
   Prisma,
   ShipmentStatus,
   TelemetryReading,
@@ -45,6 +46,61 @@ export async function evaluateTelemetryAlerts(
   if (isTerminal) return [];
 
   const createdAlerts = [];
+
+  // 0. Sensor Heartbeat Recovery:
+  // If an operational (non-simulated) reading resumes for a shipment that had a MISSING_TELEMETRY alert,
+  // auto-resolve the missing heartbeat alert.
+  if (!reading.isSimulated) {
+    const activeMissingHeartbeats = shipment.alerts.filter(
+      (a) =>
+        a.ruleCode === "MISSING_TELEMETRY" &&
+        (a.status === AlertStatus.ACTIVE || a.status === AlertStatus.ACKNOWLEDGED)
+    );
+
+    for (const alert of activeMissingHeartbeats) {
+      await db.alert.update({
+        where: { id: alert.id },
+        data: {
+          status: AlertStatus.RESOLVED,
+          resolvedAt: new Date(),
+          resolutionNotes: `Auto-resolved: Operational sensor heartbeat restored with reading sequence ${reading.sequence} recorded at ${reading.recordedAt.toISOString()}.`,
+        },
+      });
+
+      await recordAuditEvent(
+        {
+          organizationId: shipment.organizationId,
+          action: "ALERT_RESOLVED",
+          entityType: "Alert",
+          entityId: alert.id,
+          details: {
+            ruleCode: "MISSING_TELEMETRY",
+            sequence: reading.sequence,
+            autoResolved: true,
+            recordedAt: reading.recordedAt,
+          },
+        },
+        externalTx
+      );
+    }
+
+    if (activeMissingHeartbeats.length > 0) {
+      const remainingAlerts = await db.alert.count({
+        where: {
+          shipmentId: shipment.id,
+          status: { in: [AlertStatus.ACTIVE, AlertStatus.ACKNOWLEDGED] },
+        },
+      });
+      // Invariant: Other active alerts prevent inappropriate shipment-state recovery.
+      // Invariant: Terminal states remain terminal.
+      if (remainingAlerts === 0 && shipment.status === ShipmentStatus.ALERTED) {
+        await db.shipment.updateMany({
+          where: { id: shipment.id, status: ShipmentStatus.ALERTED },
+          data: { status: ShipmentStatus.IN_TRANSIT },
+        });
+      }
+    }
+  }
 
   // Recovery Criteria with Hysteresis:
   // If temperature returns within safe operating thresholds with an explicit 0.5°C hysteresis margin,
@@ -328,70 +384,331 @@ export async function evaluateTelemetryAlerts(
   return createdAlerts;
 }
 
-export async function detectMissingTelemetry(heartbeatWindowMinutes: number = 30) {
-  const cutoff = new Date(Date.now() - heartbeatWindowMinutes * 60 * 1000);
-  const shipments = await prisma.shipment.findMany({
-    where: {
-      status: { in: [ShipmentStatus.IN_TRANSIT, ShipmentStatus.ALERTED] },
-      assignedDeviceId: { not: null },
-      OR: [
-        { latestRecordedAt: { lt: cutoff } },
-        { latestRecordedAt: null, createdAt: { lt: cutoff } },
-      ],
-    },
-    include: {
-      alerts: {
-        where: {
-          ruleCode: "MISSING_TELEMETRY",
-          status: { in: [AlertStatus.ACTIVE, AlertStatus.ACKNOWLEDGED] },
-        },
+export interface EvaluateGapsOptions {
+  heartbeatWindowMinutes?: number;
+  neverReportedGraceMinutes?: number;
+  batchSize?: number;
+  workerId?: string;
+}
+
+export interface EvaluateGapsResult {
+  success: boolean;
+  evaluatedAt: string;
+  heartbeatWindowMinutes: number;
+  neverReportedGraceMinutes: number;
+  batchSize: number;
+  shipmentsEvaluated: number;
+  alertsCreated: number;
+  skipped: boolean;
+  skipReason?: string;
+  cursor: {
+    previousLastShipmentId: string | null;
+    currentLastShipmentId: string | null;
+    wrapped: boolean;
+  };
+  alerts: Array<{
+    id: string;
+    shipmentId: string;
+    ruleCode: string;
+    severity: AlertSeverity;
+    summary: string;
+  }>;
+}
+
+export async function evaluateTelemetryGaps(
+  options: EvaluateGapsOptions = {}
+): Promise<EvaluateGapsResult> {
+  const now = new Date();
+  const heartbeatWindowMinutes = Math.max(1, options.heartbeatWindowMinutes ?? 30);
+  const neverReportedGraceMinutes = Math.max(1, options.neverReportedGraceMinutes ?? 60);
+  const batchSize = Math.min(100, Math.max(1, options.batchSize ?? 100));
+  const workerId = options.workerId || `worker-${Math.random().toString(36).slice(2, 10)}`;
+  const LOCK_LEASE_MS = 60 * 1000;
+  const cursorId = "gap-evaluation";
+
+  // 1. Durably initialize or fetch the scan cursor
+  let cursor = await prisma.telemetryScanCursor.findUnique({
+    where: { id: cursorId },
+  });
+
+  if (!cursor) {
+    cursor = await prisma.telemetryScanCursor.create({
+      data: {
+        id: cursorId,
+        lastShipmentId: null,
       },
+    });
+  }
+
+  // 2. Database-backed overlap protection: verify if an active lease is held
+  if (
+    cursor.lockedUntil &&
+    cursor.lockedUntil > now &&
+    cursor.lockedBy &&
+    cursor.lockedBy !== workerId
+  ) {
+    return {
+      success: false,
+      skipped: true,
+      skipReason: "OVERLAPPING_SCAN_IN_PROGRESS",
+      evaluatedAt: now.toISOString(),
+      heartbeatWindowMinutes,
+      neverReportedGraceMinutes,
+      batchSize,
+      shipmentsEvaluated: 0,
+      alertsCreated: 0,
+      cursor: {
+        previousLastShipmentId: cursor.lastShipmentId,
+        currentLastShipmentId: cursor.lastShipmentId,
+        wrapped: false,
+      },
+      alerts: [],
+    };
+  }
+
+  // Acquire database lease
+  const leaseExpiry = new Date(now.getTime() + LOCK_LEASE_MS);
+  await prisma.telemetryScanCursor.update({
+    where: { id: cursorId },
+    data: {
+      lockedUntil: leaseExpiry,
+      lockedBy: workerId,
+      lastScanStartedAt: now,
     },
   });
 
-  const createdAlerts = [];
-  for (const shipment of shipments) {
-    if (shipment.alerts.length === 0) {
-      const alert = await prisma.alert.create({
-        data: {
-          organizationId: shipment.organizationId,
-          shipmentId: shipment.id,
-          ruleCode: "MISSING_TELEMETRY",
-          severity: AlertSeverity.HIGH,
-          summary: `Missing Telemetry: No sensor heartbeat received for over ${heartbeatWindowMinutes} minutes. Reefer monitoring stream offline.`,
-          triggerReadingJson: JSON.stringify({
-            lastSeenAt: shipment.latestRecordedAt,
-            heartbeatWindowMinutes,
-          }),
-          recommendedAction:
-            "Contact vehicle driver immediately to verify edge hardware power and cellular connectivity.",
+  let wrapped = false;
+  let nextLastId: string | null = cursor.lastShipmentId;
+  const createdAlerts: Array<{
+    id: string;
+    shipmentId: string;
+    ruleCode: string;
+    severity: AlertSeverity;
+    summary: string;
+  }> = [];
+  let evaluatedCount = 0;
+
+  try {
+    const previousLastId = cursor.lastShipmentId;
+
+    // 3. Paginated candidate query bounded by batch size (max 100)
+    let candidates = await prisma.shipment.findMany({
+      where: {
+        status: { in: [ShipmentStatus.IN_TRANSIT, ShipmentStatus.ALERTED] },
+        assignedDeviceId: { not: null },
+        ...(previousLastId ? { id: { gt: previousLastId } } : {}),
+      },
+      select: {
+        id: true,
+      },
+      orderBy: { id: "asc" },
+      take: batchSize,
+    });
+
+    // Handle cursor wraparound when reaching end of eligible records
+    if (candidates.length === 0 && previousLastId) {
+      candidates = await prisma.shipment.findMany({
+        where: {
+          status: { in: [ShipmentStatus.IN_TRANSIT, ShipmentStatus.ALERTED] },
+          assignedDeviceId: { not: null },
         },
+        select: {
+          id: true,
+        },
+        orderBy: { id: "asc" },
+        take: batchSize,
+      });
+      wrapped = true;
+    }
+
+    evaluatedCount = candidates.length;
+    if (candidates.length > 0) {
+      nextLastId = candidates[candidates.length - 1].id;
+    }
+
+    const cutoff = new Date(now.getTime() - heartbeatWindowMinutes * 60 * 1000);
+    const graceCutoff = new Date(now.getTime() - neverReportedGraceMinutes * 60 * 1000);
+
+    // 4. Transactional row-level evaluation with state and exclusion rechecks
+    for (const candidate of candidates) {
+      const alert = await prisma.$transaction(async (tx) => {
+        // Enforce consistent row locking order: Shipment row locked first
+        const [lockedShipment] = await tx.$queryRaw<
+          Array<{
+            id: string;
+            organizationId: string;
+            status: ShipmentStatus;
+            assignedDeviceId: string | null;
+            latestRecordedAt: Date | null;
+            createdAt: Date;
+          }>
+        >`
+          SELECT "id", "organizationId", "status", "assignedDeviceId", "latestRecordedAt", "createdAt"
+          FROM "Shipment"
+          WHERE "id" = ${candidate.id}
+          FOR UPDATE
+        `;
+
+        if (!lockedShipment) return null;
+
+        // Terminal exclusion: terminal states remain terminal and are never mutated
+        if (
+          lockedShipment.status !== ShipmentStatus.IN_TRANSIT &&
+          lockedShipment.status !== ShipmentStatus.ALERTED
+        ) {
+          return null;
+        }
+
+        // Assignment check: shipment must have an actively bound device
+        if (!lockedShipment.assignedDeviceId) {
+          return null;
+        }
+
+        // Hardware status & simulation isolation check
+        const device = await tx.device.findUnique({
+          where: { id: lockedShipment.assignedDeviceId },
+          select: {
+            id: true,
+            status: true,
+            isSimulated: true,
+            hardwareModel: true,
+          },
+        });
+
+        if (!device) return null;
+
+        // Inactive device exclusion: revoked, suspended, or decommissioned devices excluded
+        if (device.status !== DeviceStatus.ACTIVE) {
+          return null;
+        }
+
+        // Simulator isolation: simulator devices do not pollute operational gap monitoring
+        const isDeviceSimulated =
+          device.isSimulated || device.hardwareModel.toUpperCase().includes("SIMULATOR");
+        if (isDeviceSimulated) {
+          return null;
+        }
+
+        // Heartbeat timeout evaluation
+        let isTimedOut = false;
+        if (lockedShipment.latestRecordedAt !== null) {
+          if (lockedShipment.latestRecordedAt < cutoff) {
+            isTimedOut = true;
+          }
+        } else {
+          // Never-reported device grace period
+          if (lockedShipment.createdAt < graceCutoff) {
+            isTimedOut = true;
+          }
+        }
+
+        if (!isTimedOut) {
+          return null;
+        }
+
+        // Overlap protection / Idempotency check: no duplicate active MISSING_TELEMETRY alerts
+        const existingAlert = await tx.alert.findFirst({
+          where: {
+            shipmentId: lockedShipment.id,
+            ruleCode: "MISSING_TELEMETRY",
+            status: { in: [AlertStatus.ACTIVE, AlertStatus.ACKNOWLEDGED] },
+          },
+        });
+
+        if (existingAlert) {
+          return null;
+        }
+
+        // Atomically create alert and audit record
+        const newAlert = await tx.alert.create({
+          data: {
+            organizationId: lockedShipment.organizationId,
+            shipmentId: lockedShipment.id,
+            ruleCode: "MISSING_TELEMETRY",
+            severity: AlertSeverity.HIGH,
+            status: AlertStatus.ACTIVE,
+            summary: `Missing Telemetry: No sensor heartbeat received for over ${heartbeatWindowMinutes} minutes. Reefer monitoring stream offline.`,
+            triggerReadingJson: JSON.stringify({
+              lastSeenAt: lockedShipment.latestRecordedAt?.toISOString() ?? null,
+              heartbeatWindowMinutes,
+              neverReportedGraceMinutes,
+              evaluatedAt: now.toISOString(),
+            }),
+            recommendedAction:
+              "Contact vehicle driver immediately to verify edge hardware power and cellular connectivity.",
+          },
+        });
+
+        if (lockedShipment.status === ShipmentStatus.IN_TRANSIT) {
+          await tx.shipment.update({
+            where: { id: lockedShipment.id },
+            data: { status: ShipmentStatus.ALERTED },
+          });
+        }
+
+        await recordAuditEvent(
+          {
+            organizationId: lockedShipment.organizationId,
+            action: "ALERT_GENERATED",
+            entityType: "Alert",
+            entityId: newAlert.id,
+            details: {
+              ruleCode: "MISSING_TELEMETRY",
+              heartbeatWindowMinutes,
+              lastSeenAt: lockedShipment.latestRecordedAt,
+              autoGenerated: true,
+            },
+          },
+          tx
+        );
+
+        return newAlert;
       });
 
-      if (shipment.status === ShipmentStatus.IN_TRANSIT) {
-        await prisma.shipment.update({
-          where: { id: shipment.id },
-          data: { status: ShipmentStatus.ALERTED },
+      if (alert) {
+        createdAlerts.push({
+          id: alert.id,
+          shipmentId: alert.shipmentId,
+          ruleCode: alert.ruleCode,
+          severity: alert.severity,
+          summary: alert.summary,
         });
       }
-
-      await recordAuditEvent({
-        organizationId: shipment.organizationId,
-        action: "ALERT_GENERATED",
-        entityType: "Alert",
-        entityId: alert.id,
-        details: {
-          ruleCode: "MISSING_TELEMETRY",
-          heartbeatWindowMinutes,
-          trackingNumber: shipment.trackingNumber,
-        },
-      });
-
-      createdAlerts.push(alert);
     }
-  }
 
-  return createdAlerts;
+    return {
+      success: true,
+      evaluatedAt: now.toISOString(),
+      heartbeatWindowMinutes,
+      neverReportedGraceMinutes,
+      batchSize,
+      shipmentsEvaluated: evaluatedCount,
+      alertsCreated: createdAlerts.length,
+      skipped: false,
+      cursor: {
+        previousLastShipmentId: previousLastId,
+        currentLastShipmentId: nextLastId,
+        wrapped,
+      },
+      alerts: createdAlerts,
+    };
+  } finally {
+    // 5. Always release scan lease and persist cursor progress
+    await prisma.telemetryScanCursor.update({
+      where: { id: cursorId },
+      data: {
+        lastShipmentId: nextLastId,
+        lockedUntil: null,
+        lockedBy: null,
+        lastScanCompletedAt: new Date(),
+      },
+    });
+  }
+}
+
+export async function detectMissingTelemetry(heartbeatWindowMinutes: number = 30) {
+  const result = await evaluateTelemetryGaps({ heartbeatWindowMinutes });
+  return result.alerts;
 }
 
 export async function acknowledgeAlert(params: {

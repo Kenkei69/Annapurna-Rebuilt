@@ -58,6 +58,24 @@ export default function HomePage() {
             </div>
           </div>
 
+          <div className="hidden md:flex items-center gap-6 text-xs font-semibold text-slate-300">
+            <Link href="/features" className="hover:text-emerald-400 transition-colors">
+              Features
+            </Link>
+            <Link href="/fleet" className="hover:text-emerald-400 transition-colors">
+              Fleet Console
+            </Link>
+            <Link href="/tracking" className="hover:text-emerald-400 transition-colors">
+              Public Tracking
+            </Link>
+            <Link href="/architecture" className="hover:text-emerald-400 transition-colors">
+              Architecture
+            </Link>
+            <Link href="/bidding" className="hover:text-emerald-400 transition-colors">
+              Bidding Hub
+            </Link>
+          </div>
+
           <div className="flex items-center gap-4 text-sm font-medium">
             <Link
               href="/login"

@@ -279,9 +279,33 @@ test("Priority 2 & 3: Telemetry Ingestion, Out-of-Order Safety, Simulator Isolat
 
   // 10. Missing Telemetry Detection
   // Detect missing telemetry for shipments exceeding heartbeat threshold
+  // (Simulated devices are excluded from operational gap monitoring by design)
+  const opDevice = await prisma.device.findUniqueOrThrow({
+    where: { deviceIdentifier: opDevId },
+  });
+  const opShipment = await createShipment({
+    organizationId: fleetOrg.id,
+    title: "Operational Vaccine Shipment",
+    cargoType: "Biologics",
+    tempMin: 2.0,
+    tempMax: 6.0,
+    originName: "Pune Serum Institute",
+    destName: "Mumbai Cold Hub",
+    assignedDeviceId: opDevice.id,
+    assignedVehicleId: vehicle.id,
+    actorId: operator.id,
+  });
+  await prisma.shipment.update({
+    where: { id: opShipment.id },
+    data: {
+      status: ShipmentStatus.IN_TRANSIT,
+      latestRecordedAt: new Date(Date.now() - 60000),
+    },
+  });
+
   const missingAlerts = await detectMissingTelemetry(0); // 0 minutes cutoff for testing
   assert.ok(missingAlerts.length >= 1, "Missing telemetry alert should be triggered");
-  const ourMissingAlert = missingAlerts.find((a) => a.shipmentId === shipment.id);
+  const ourMissingAlert = missingAlerts.find((a) => a.shipmentId === opShipment.id);
   assert.ok(ourMissingAlert, "Shipment should receive MISSING_TELEMETRY alert");
   assert.equal(ourMissingAlert?.ruleCode, "MISSING_TELEMETRY");
 
