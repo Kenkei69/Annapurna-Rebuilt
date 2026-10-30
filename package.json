@@ -15,6 +15,7 @@
     "db:provision-admin": "tsx scripts/provision-admin.ts",
     "db:seed": "tsx prisma/seed.ts",
     "db:reset-demo": "tsx scripts/reset-demo.ts",
+    "test:browser": "node scripts/verify-browser-journey.mjs",
     "test": "tsx --test \"tests/unit/*.test.ts\" \"tests/integration/*.test.ts\""
   },
   "dependencies": {
