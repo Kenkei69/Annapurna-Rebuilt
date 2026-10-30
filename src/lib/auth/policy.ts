@@ -75,8 +75,8 @@ export async function resolveActor(userId: string): Promise<AuthorizedActor | nu
 /**
  * Resolves current actor from the request session.
  */
-export async function getAuthorizedActor(): Promise<AuthorizedActor | null> {
-  const user = await getCurrentUser();
+export async function getAuthorizedActor(req?: Request): Promise<AuthorizedActor | null> {
+  const user = await getCurrentUser(req);
   if (!user) return null;
   return resolveActor(user.id);
 }

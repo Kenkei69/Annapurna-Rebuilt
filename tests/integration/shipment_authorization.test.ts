@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { prisma } from "../../src/lib/db";
-import { hashPassword } from "../../src/lib/auth";
+import { hashPassword, createSessionToken } from "../../src/lib/auth";
 import {
   resolveActor,
   authorizeShipmentAccess,
@@ -9,6 +9,8 @@ import {
   getShipmentsWhereClause,
   getRescueOpportunitiesWhereClause,
 } from "../../src/lib/auth/policy";
+import { GET as getShipmentByIdRoute } from "../../src/app/api/shipments/[id]/route";
+import { GET as getShipmentsListRoute } from "../../src/app/api/shipments/route";
 import {
   createRescueOpportunity,
   submitRescueOffer,
@@ -353,4 +355,65 @@ test("Shipment Authorization & Data Exposure - Comprehensive Isolation Policy", 
     organizationId: fleetA.id,
     assignedDriverId: driverA1User.id,
   });
+
+  // --- TEST CASE 10: Endpoint-Level Authorization & Serialization Protection ---
+  const tokenOpA = createSessionToken({ userId: operatorAUser.id, email: operatorAUser.email, role: UserRole.OPERATOR });
+  const tokenOpB = createSessionToken({ userId: operatorBUser.id, email: operatorBUser.email, role: UserRole.OPERATOR });
+  const tokenDriverA1 = createSessionToken({ userId: driverA1User.id, email: driverA1User.email, role: UserRole.DRIVER });
+  const tokenDriverA2 = createSessionToken({ userId: driverA2User.id, email: driverA2User.email, role: UserRole.DRIVER });
+  const tokenPartner3 = createSessionToken({ userId: partner3User.id, email: partner3User.email, role: UserRole.PARTNER });
+  const tokenOrphan = createSessionToken({ userId: orphanUser.id, email: orphanUser.email, role: UserRole.OPERATOR });
+
+  // 1. Authorized Operator A can fetch shipment details via API route
+  const reqOpA = new Request(`http://localhost/api/shipments/${shipmentA1.id}`, {
+    headers: { cookie: `annapurna_session=${tokenOpA}` },
+  });
+  const resOpA = await getShipmentByIdRoute(reqOpA, { params: Promise.resolve({ id: shipmentA1.id }) });
+  assert.equal(resOpA.status, 200);
+  const dataOpA = await resOpA.json();
+  assert.equal(dataOpA.shipment.id, shipmentA1.id);
+  assert.equal(JSON.stringify(dataOpA).includes("passwordHash"), false);
+  assert.equal(JSON.stringify(dataOpA).includes("apiKeyHash"), false);
+
+  // 2. Cross-tenant Operator B gets 403 Forbidden
+  const reqOpB = new Request(`http://localhost/api/shipments/${shipmentA1.id}`, {
+    headers: { cookie: `annapurna_session=${tokenOpB}` },
+  });
+  const resOpB = await getShipmentByIdRoute(reqOpB, { params: Promise.resolve({ id: shipmentA1.id }) });
+  assert.equal(resOpB.status, 403);
+
+  // 3. Unassigned Driver A2 in same org gets 403 Forbidden
+  const reqDriverA2 = new Request(`http://localhost/api/shipments/${shipmentA1.id}`, {
+    headers: { cookie: `annapurna_session=${tokenDriverA2}` },
+  });
+  const resDriverA2 = await getShipmentByIdRoute(reqDriverA2, { params: Promise.resolve({ id: shipmentA1.id }) });
+  assert.equal(resDriverA2.status, 403);
+
+  // 4. Assigned Driver A1 gets 200 OK
+  const reqDriverA1 = new Request(`http://localhost/api/shipments/${shipmentA1.id}`, {
+    headers: { cookie: `annapurna_session=${tokenDriverA1}` },
+  });
+  const resDriverA1 = await getShipmentByIdRoute(reqDriverA1, { params: Promise.resolve({ id: shipmentA1.id }) });
+  assert.equal(resDriverA1.status, 200);
+
+  // 5. Unrelated Partner gets 403 Forbidden
+  const reqPartner3 = new Request(`http://localhost/api/shipments/${shipmentA1.id}`, {
+    headers: { cookie: `annapurna_session=${tokenPartner3}` },
+  });
+  const resPartner3 = await getShipmentByIdRoute(reqPartner3, { params: Promise.resolve({ id: shipmentA1.id }) });
+  assert.equal(resPartner3.status, 403);
+
+  // 6. User with no organization (orphan) calling list receives empty shipments array (fail-closed)
+  const reqOrphanList = new Request(`http://localhost/api/shipments`, {
+    headers: { cookie: `annapurna_session=${tokenOrphan}` },
+  });
+  const resOrphanList = await getShipmentsListRoute(reqOrphanList);
+  assert.equal(resOrphanList.status, 200);
+  const dataOrphanList = await resOrphanList.json();
+  assert.equal(dataOrphanList.shipments.length, 0);
+
+  // 7. Unauthenticated request gets 401
+  const reqNoAuth = new Request(`http://localhost/api/shipments/${shipmentA1.id}`);
+  const resNoAuth = await getShipmentByIdRoute(reqNoAuth, { params: Promise.resolve({ id: shipmentA1.id }) });
+  assert.equal(resNoAuth.status, 401);
 });

@@ -28,7 +28,7 @@ const CreateShipmentSchema = z.object({
 
 export async function GET(req: Request) {
   try {
-    const actor = await getAuthorizedActor();
+    const actor = await getAuthorizedActor(req);
     if (!actor) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

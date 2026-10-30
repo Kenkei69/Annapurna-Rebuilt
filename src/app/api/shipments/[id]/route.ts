@@ -3,11 +3,11 @@ import { getAuthorizedActor, loadAuthorizedShipmentDetails } from "@/lib/auth/po
 import { AppError, NotFoundError, ForbiddenError } from "@/lib/errors";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const actor = await getAuthorizedActor();
+    const actor = await getAuthorizedActor(req);
     if (!actor) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

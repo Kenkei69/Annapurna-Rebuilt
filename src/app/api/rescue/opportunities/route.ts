@@ -21,9 +21,9 @@ const CreateOpportunitySchema = z.object({
   maxBudget: z.number().positive().optional(),
 });
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const actor = await getAuthorizedActor();
+    const actor = await getAuthorizedActor(req);
     if (!actor) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
