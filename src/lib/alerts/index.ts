@@ -419,8 +419,8 @@ export async function evaluateTelemetryGaps(
   options: EvaluateGapsOptions = {}
 ): Promise<EvaluateGapsResult> {
   const now = new Date();
-  const heartbeatWindowMinutes = Math.max(1, options.heartbeatWindowMinutes ?? 30);
-  const neverReportedGraceMinutes = Math.max(1, options.neverReportedGraceMinutes ?? 60);
+  const heartbeatWindowMinutes = Math.max(0, options.heartbeatWindowMinutes ?? 30);
+  const neverReportedGraceMinutes = Math.max(0, options.neverReportedGraceMinutes ?? 60);
   const batchSize = Math.min(100, Math.max(1, options.batchSize ?? 100));
   const workerId = options.workerId || `worker-${Math.random().toString(36).slice(2, 10)}`;
   const LOCK_LEASE_MS = 60 * 1000;

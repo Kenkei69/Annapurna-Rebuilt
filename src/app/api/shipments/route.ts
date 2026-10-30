@@ -23,6 +23,7 @@ const CreateShipmentSchema = z.object({
   assignedVehicleId: z.string().optional(),
   assignedDeviceId: z.string().optional(),
   assignedDriverId: z.string().optional(),
+  cargoWeightKg: z.number().positive().optional(),
   organizationId: z.string().optional(),
 });
 
@@ -125,7 +126,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const user = await requireAuth();
+    const user = await requireAuth(req);
     const body = await req.json();
     const data = CreateShipmentSchema.parse(body);
 
@@ -181,6 +182,7 @@ export async function POST(req: Request) {
       assignedVehicleId: data.assignedVehicleId,
       assignedDeviceId: data.assignedDeviceId,
       assignedDriverId: data.assignedDriverId,
+      cargoWeightKg: data.cargoWeightKg,
       actorId: user.id,
       actorEmail: user.email,
     });

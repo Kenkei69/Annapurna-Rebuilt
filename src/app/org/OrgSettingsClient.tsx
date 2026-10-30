@@ -13,6 +13,10 @@ import {
   UserCog,
   AlertCircle,
   CheckCircle2,
+  Palette,
+  Sun,
+  Moon,
+  Monitor,
 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ToastBanner, ToastMessage } from "@/components/ui/ToastBanner";
@@ -71,7 +75,60 @@ export function OrgSettingsClient({
 }: OrgSettingsClientProps) {
   const router = useRouter();
   const [toast, setToast] = useState<ToastMessage | null>(null);
-  const [tab, setTab] = useState<"profile" | "members">("profile");
+  const [tab, setTab] = useState<"profile" | "members" | "appearance">("profile");
+
+  // Appearance State
+  const [themeMode, setThemeMode] = useState<"light" | "dark" | "system">(() => {
+    if (typeof window !== "undefined") {
+      return (localStorage.getItem("annapurna_theme") as any) || "light";
+    }
+    return "light";
+  });
+  const [highContrast, setHighContrast] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("annapurna_contrast") === "high";
+    }
+    return false;
+  });
+  const [density, setDensity] = useState<"comfortable" | "compact">(() => {
+    if (typeof window !== "undefined") {
+      return (localStorage.getItem("annapurna_density") as any) || "comfortable";
+    }
+    return "comfortable";
+  });
+
+  const handleApplyAppearance = (
+    newTheme: "light" | "dark" | "system",
+    newContrast: boolean,
+    newDensity: "comfortable" | "compact"
+  ) => {
+    setThemeMode(newTheme);
+    setHighContrast(newContrast);
+    setDensity(newDensity);
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem("annapurna_theme", newTheme);
+      localStorage.setItem("annapurna_contrast", newContrast ? "high" : "normal");
+      localStorage.setItem("annapurna_density", newDensity);
+
+      const root = document.documentElement;
+      if (newTheme === "dark") {
+        root.classList.add("dark");
+      } else if (newTheme === "light") {
+        root.classList.remove("dark");
+      } else {
+        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        root.classList.toggle("dark", prefersDark);
+      }
+
+      if (newContrast) {
+        root.classList.add("high-contrast");
+      } else {
+        root.classList.remove("high-contrast");
+      }
+    }
+    setToast({ type: "success", message: "Appearance preferences saved successfully." });
+  };
 
   // Organization name edit
   const [orgName, setOrgName] = useState(org.name);
@@ -158,7 +215,7 @@ export function OrgSettingsClient({
 
       {/* Tab navigation */}
       <div className="flex items-center gap-1 border-b border-slate-200">
-        {(["profile", "members"] as const).map((t) => (
+        {(["profile", "members", "appearance"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -168,7 +225,11 @@ export function OrgSettingsClient({
                 : "border-transparent text-slate-500 hover:text-slate-700"
             }`}
           >
-            {t === "profile" ? "Organization Profile" : "Members & Roles"}
+            {t === "profile"
+              ? "Organization Profile"
+              : t === "members"
+              ? "Members & Roles"
+              : "Appearance & Accessibility"}
           </button>
         ))}
       </div>
@@ -381,6 +442,109 @@ export function OrgSettingsClient({
               To add members, they must register with the platform and contact an organization owner.
               Driver invitation workflows require a configured email integration.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Appearance & Accessibility tab */}
+      {tab === "appearance" && (
+        <div className="space-y-6">
+          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
+            <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
+              <Palette size={18} className="text-emerald-600" />
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Color Theme &amp; Contrast</h2>
+                <p className="text-xs text-slate-500">
+                  Customizable display modes complying with WCAG 2.1 AA accessibility guidelines
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
+                  Display Mode
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {[
+                    { id: "light", label: "Light Theme", desc: "Neutral light surfaces & slate sidebar", icon: <Sun size={16} /> },
+                    { id: "dark", label: "Dark Mode", desc: "Dark background for low-light environments", icon: <Moon size={16} /> },
+                    { id: "system", label: "System Sync", desc: "Matches operating system settings", icon: <Monitor size={16} /> },
+                  ].map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => handleApplyAppearance(m.id as any, highContrast, density)}
+                      className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
+                        themeMode === m.id
+                          ? "border-emerald-600 bg-emerald-50/40 text-emerald-950 ring-2 ring-emerald-500/20"
+                          : "border-slate-200 hover:border-slate-300 text-slate-700"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-semibold text-sm flex items-center gap-2">
+                          {m.icon}
+                          <span>{m.label}</span>
+                        </span>
+                        {themeMode === m.id && <CheckCircle2 size={16} className="text-emerald-600" />}
+                      </div>
+                      <p className="text-xs text-slate-500">{m.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
+                    Accessibility Contrast
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyAppearance(themeMode, !highContrast, density)}
+                    className={`w-full p-4 rounded-xl border text-left transition-all cursor-pointer ${
+                      highContrast
+                        ? "border-emerald-600 bg-emerald-50/40 text-emerald-950"
+                        : "border-slate-200 hover:border-slate-300 text-slate-700"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-semibold text-sm">Enhanced Contrast</span>
+                      {highContrast && <CheckCircle2 size={16} className="text-emerald-600" />}
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Strengthens typography contrast and sharpens operational border delineations for control room readability.
+                    </p>
+                  </button>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
+                    Console Density
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: "comfortable", label: "Comfortable", desc: "Default spacing" },
+                      { id: "compact", label: "High Density", desc: "Information-dense" },
+                    ].map((d) => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => handleApplyAppearance(themeMode, highContrast, d.id as any)}
+                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                          density === d.id
+                            ? "border-emerald-600 bg-emerald-50/40 text-emerald-950"
+                            : "border-slate-200 hover:border-slate-300 text-slate-700"
+                        }`}
+                      >
+                        <span className="font-semibold text-xs block mb-0.5">{d.label}</span>
+                        <span className="text-[11px] text-slate-500">{d.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

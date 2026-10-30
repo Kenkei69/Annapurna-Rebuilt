@@ -7,6 +7,8 @@ export const AIAssistanceResponseSchema = z.object({
   estimatedMinutesToSpoilage: z.number().nullable(),
   suggestedActions: z.array(z.string()),
   draftDriverUpdate: z.string(),
+  advisoryAdvice: z.string().optional(),
+  language: z.string().default("en"),
   uncertaintyNotes: z.string(),
   source: z.enum(["GEMINI_AI", "DETERMINISTIC_EXPERT_SYSTEM"]),
 });
@@ -21,6 +23,8 @@ export interface IncidentContext {
   currentTemp: number;
   readings: Array<{ temperature: number; recordedAt: string | Date }>;
   activeAlerts: Array<{ ruleCode: string; summary: string; severity: string }>;
+  advisoryQuestion?: string;
+  language?: "en" | "hi" | "mr" | "ta" | "te" | "bn" | "gu";
 }
 
 export async function analyzeIncidentWithAI(
@@ -50,8 +54,11 @@ Analyze the following cold-chain incident and return ONLY valid JSON matching th
   "estimatedMinutesToSpoilage": integer_number_or_null,
   "suggestedActions": ["action 1", "action 2"],
   "draftDriverUpdate": "message to driver",
+  "advisoryAdvice": "specific answer to operator advisory question or operational assessment",
   "uncertaintyNotes": "limits of this estimate"
 }
+
+Respond in the language specified: '${context.language || "en"}' (e.g. if 'hi', translate summary, actions, and advice to Hindi; otherwise English).
 
 Incident Details:
 Cargo: ${context.cargoType} (${context.shipmentTitle})
@@ -59,6 +66,7 @@ Allowed Range: ${context.tempMin}°C to ${context.tempMax}°C
 Current Temperature: ${context.currentTemp}°C
 Recent Readings: ${JSON.stringify(context.readings.slice(0, 5))}
 Active Alerts: ${JSON.stringify(context.activeAlerts)}
+Operator Advisory Question: ${context.advisoryQuestion || "None provided. What are immediate operational recommendations?"}
 `,
                   },
                 ],
@@ -79,6 +87,7 @@ Active Alerts: ${JSON.stringify(context.activeAlerts)}
           const parsed = JSON.parse(rawText);
           const validated = AIAssistanceResponseSchema.safeParse({
             ...parsed,
+            language: context.language || "en",
             source: "GEMINI_AI",
           });
           if (validated.success) {
@@ -156,6 +165,10 @@ export function generateDeterministicIncidentAnalysis(
       )}°C above ${context.tempMax}°C limit). Please inspect reefer display and confirm unit is powered on. Acknowledge this notification via app.`
     : `Status Update: Cold-chain temperature is stable at ${context.currentTemp}°C. Maintain current scheduled route.`;
 
+  const advisoryAdvice = context.advisoryQuestion
+    ? `Operational Advisory regarding "${context.advisoryQuestion}": Standard cold-chain protocol mandates immediate verification of secondary power circuits, door sensor seals, and logging waypoint telemetry. If ambient temperatures exceed 35°C, cargo thermal tolerance reduces by approximately 40%.`
+    : undefined;
+
   return {
     summary: isHigh
       ? `Thermal deviation detected on ${context.cargoType}. Temperature is currently ${context.currentTemp}°C, exceeding max allowable limit of ${context.tempMax}°C by +${deviation.toFixed(1)}°C.`
@@ -165,6 +178,8 @@ export function generateDeterministicIncidentAnalysis(
     estimatedMinutesToSpoilage: estimatedMinutes,
     suggestedActions,
     draftDriverUpdate,
+    advisoryAdvice,
+    language: context.language || "en",
     uncertaintyNotes:
       "Deterministic calculation based on recent sensor gradient. Actual spoilage rate varies with cargo thermal mass, packaging insulation, and external ambient temperature. Human operator review required before executing rescue operations.",
     source: "DETERMINISTIC_EXPERT_SYSTEM",
