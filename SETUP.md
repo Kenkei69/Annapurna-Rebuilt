@@ -43,11 +43,11 @@ npm install
 ## 3. Versioned Database Migrations
 Deploy committed Prisma migrations to PostgreSQL:
 ```bash
-npm run db:migrate:deploy
+npm run db:migrate
 ```
 Check migration status:
 ```bash
-npm run db:migrate:status
+npx prisma migrate status
 ```
 Generate the Prisma typed client:
 ```bash
@@ -61,7 +61,7 @@ npm run db:generate
 ### 4.1 Non-Destructive Essential Initialization (Safe for any environment)
 To initialize required system structures and administrator tenant without erasing records:
 ```bash
-npm run db:init:essential
+npm run db:init-essential
 ```
 
 ### 4.2 Development Demo Seeding (Development only)

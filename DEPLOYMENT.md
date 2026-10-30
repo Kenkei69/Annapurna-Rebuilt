@@ -38,26 +38,26 @@ npm run build
 
 For database migrations on production:
 ```bash
-npm run db:migrate:deploy
+npm run db:migrate
 ```
 *(Executes committed versioned Prisma migrations in `prisma/migrations/`)*.
 
 To verify migration status:
 ```bash
-npm run db:migrate:status
+npx prisma migrate status
 ```
 
 ### 3.1 Initializing Essential Production Records
 To provision essential administrative tenants and system settings non-destructively:
 ```bash
-npm run db:init:essential
+npm run db:init-essential
 ```
 *(Safe and idempotent; never erases or truncates existing data)*.
 
 ### 3.2 Provisioning Production Administrator
 Provision the initial production administrative user with strong credential policies (minimum 12 characters, uppercase, lowercase, numbers, and symbols):
 ```bash
-ADMIN_EMAIL="admin@yourdomain.com" ADMIN_PASSWORD="YourStrongPassword123!" npm run admin:provision
+ADMIN_EMAIL="admin@yourdomain.com" ADMIN_PASSWORD="YourStrongPassword123!" npm run db:provision-admin
 ```
 
 > **Safety Notice:** Destructive reset scripts (`npm run db:reset:demo`) are protected by structural `DATABASE_URL` safety verification (`assertSafeForDestructiveReset`). The guard structurally parses hostnames and database names, immediately refusing execution if targeting cloud providers (AWS RDS, Supabase, Neon) or databases not in the explicit disposable whitelist (`annapurna_dev`, `annapurna_test`). Never attempt demo reset in production.
