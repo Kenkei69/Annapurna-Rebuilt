@@ -176,9 +176,16 @@ export async function submitRescueOffer(params: {
 
     // 2. Row-level lock on opportunity to coordinate race with concurrent acceptance
     const [opp] = await tx.$queryRaw<
-      Array<{ id: string; status: string; organizationId: string }>
+      Array<{
+        id: string;
+        status: string;
+        organizationId: string;
+        cargoWeightKg: number;
+        tempRequirementMin: number;
+        tempRequirementMax: number;
+      }>
     >`
-      SELECT "id", "status", "organizationId"
+      SELECT "id", "status", "organizationId", "cargoWeightKg", "tempRequirementMin", "tempRequirementMax"
       FROM "RescueOpportunity"
       WHERE "id" = ${params.opportunityId}
       FOR UPDATE
@@ -286,6 +293,32 @@ export async function acceptRescueOffer(params: {
 
     if (!oppRow) {
       throw new NotFoundError("RESCUE_OPPORTUNITY_NOT_FOUND");
+    }
+
+    // Authorization check: Verify actor has fleet owner/dispatcher authority or admin role
+    const callerUser = await tx.user.findUnique({
+      where: { id: params.actorId },
+      select: { role: true },
+    });
+    const isAdmin = callerUser?.role === "ADMIN";
+
+    const callerMembership = await tx.membership.findUnique({
+      where: {
+        userId_organizationId: {
+          userId: params.actorId,
+          organizationId: oppRow.organizationId,
+        },
+      },
+    });
+
+    const isFleetAuth =
+      callerMembership &&
+      (callerMembership.orgRole === "OWNER" || callerMembership.orgRole === "DISPATCHER");
+
+    if (!isAdmin && !isFleetAuth) {
+      throw new ForbiddenError(
+        "FORBIDDEN: Only fleet owners, dispatchers, or administrators can accept rescue offers."
+      );
     }
 
     // 2. Idempotency Check: if this exact offer is already accepted, return idempotently
@@ -502,34 +535,31 @@ export async function recordRescueMilestone(params: {
       );
     }
 
-    // Authorization check: Actor must be fleet owner/dispatcher, assigned driver, or winning partner org
+    // Authorization check: Actor must be fleet owner/dispatcher, assigned driver, winning partner org, or admin
+    const actorUser = await tx.user.findUnique({
+      where: { id: params.actorId },
+      select: { role: true },
+    });
+    const isAdmin = actorUser?.role === "ADMIN";
+
     const userMemberships = await tx.membership.findMany({
       where: { userId: params.actorId },
-      select: { organizationId: true },
+      select: { organizationId: true, orgRole: true },
     });
-    const userOrgIds = new Set(userMemberships.map((m) => m.organizationId));
-    if (params.actorOrgId) {
-      userOrgIds.add(params.actorOrgId);
-    }
 
-    let isAdmin = params.actorRole === "ADMIN";
-    if (!isAdmin) {
-      const user = await tx.user.findUnique({
-        where: { id: params.actorId },
-        select: { role: true },
-      });
-      isAdmin = user?.role === "ADMIN";
-    }
+    const fleetMembership = userMemberships.find((m) => m.organizationId === opp.organizationId);
+    const isFleetAuth =
+      fleetMembership &&
+      (fleetMembership.orgRole === "OWNER" || fleetMembership.orgRole === "DISPATCHER");
 
     const winningOffer = opp.offers[0];
-    const isFleetOwner = userOrgIds.has(opp.organizationId);
     const isDriver = opp.shipment.assignedDriverId === params.actorId;
     const isWinningPartner =
-      Boolean(winningOffer && userOrgIds.has(winningOffer.partnerOrgId));
+      Boolean(winningOffer && userMemberships.some((m) => m.organizationId === winningOffer.partnerOrgId));
 
-    if (!isFleetOwner && !isDriver && !isWinningPartner && !isAdmin) {
+    if (!isFleetAuth && !isDriver && !isWinningPartner && !isAdmin) {
       throw new ForbiddenError(
-        "FORBIDDEN: Only authorized participants (fleet dispatcher, driver, or assigned rescue partner) can log milestones."
+        "FORBIDDEN: Only authorized participants (fleet owner, dispatcher, assigned driver, or winning rescue partner) can log milestones."
       );
     }
 
@@ -572,7 +602,7 @@ export async function completeRescue(params: {
   }
 
   return prisma.$transaction(async (tx) => {
-    // Exclusive lock
+    // 1. Exclusive lock on RescueOpportunity
     const [opp] = await tx.$queryRaw<
       Array<{
         id: string;
@@ -592,12 +622,58 @@ export async function completeRescue(params: {
       throw new NotFoundError("RESCUE_OPPORTUNITY_NOT_FOUND");
     }
 
-    // Idempotency: already completed
+    // 2. Lock associated Shipment in consistent order to prevent concurrent race transitions
+    await tx.$queryRaw`
+      SELECT "id" FROM "Shipment" WHERE "id" = ${opp.shipmentId} FOR UPDATE
+    `;
+
+    // 3. Idempotency: already completed
     if (opp.status === RescueStatus.COMPLETED) {
       return opp;
     }
 
-    // State machine check: must be in ACCEPTED or IN_PROGRESS
+    // 4. Authorization check: Actor must be fleet owner/dispatcher, assigned driver, winning partner, or admin
+    const actorUser = await tx.user.findUnique({
+      where: { id: params.actorId },
+      select: { role: true },
+    });
+    const isAdmin = actorUser?.role === "ADMIN";
+
+    const userMemberships = await tx.membership.findMany({
+      where: { userId: params.actorId },
+      select: { organizationId: true, orgRole: true },
+    });
+
+    const fleetMembership = userMemberships.find((m) => m.organizationId === opp.organizationId);
+    const isFleetAuth =
+      fleetMembership &&
+      (fleetMembership.orgRole === "OWNER" || fleetMembership.orgRole === "DISPATCHER");
+
+    const shipment = await tx.shipment.findUnique({
+      where: { id: opp.shipmentId },
+    });
+    if (!shipment) {
+      throw new NotFoundError("SHIPMENT_NOT_FOUND");
+    }
+
+    const isDriver = shipment.assignedDriverId === params.actorId;
+
+    let isWinningPartner = false;
+    if (opp.acceptedOfferId) {
+      const winningOffer = await tx.rescueOffer.findUnique({
+        where: { id: opp.acceptedOfferId },
+      });
+      isWinningPartner =
+        Boolean(winningOffer && userMemberships.some((m) => m.organizationId === winningOffer.partnerOrgId));
+    }
+
+    if (!isFleetAuth && !isDriver && !isWinningPartner && !isAdmin) {
+      throw new ForbiddenError(
+        "FORBIDDEN: Only authorized participants (fleet owner/dispatcher, assigned driver, winning partner, or admin) can complete rescue."
+      );
+    }
+
+    // 5. State machine check: must be in ACCEPTED or IN_PROGRESS
     if (
       opp.status !== RescueStatus.ACCEPTED &&
       opp.status !== RescueStatus.IN_PROGRESS
@@ -611,14 +687,6 @@ export async function completeRescue(params: {
       throw new ConflictError(
         "INVALID_STATE_TRANSITION: Cannot complete rescue without an accepted assignment."
       );
-    }
-
-    // Validate and transition shipment atomically
-    const shipment = await tx.shipment.findUnique({
-      where: { id: opp.shipmentId },
-    });
-    if (!shipment) {
-      throw new NotFoundError("SHIPMENT_NOT_FOUND");
     }
 
     if (!canTransitionShipment(shipment.status, ShipmentStatus.RESCUED)) {

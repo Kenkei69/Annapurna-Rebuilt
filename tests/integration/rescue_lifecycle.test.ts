@@ -10,7 +10,7 @@ import {
 } from "../../src/lib/rescue";
 import { createVehicle, provisionDevice } from "../../src/lib/fleet";
 import { createShipment } from "../../src/lib/shipments";
-import { OfferStatus, RescueStatus, ShipmentStatus } from "@prisma/client";
+import { OfferStatus, RescueStatus, ShipmentStatus, UserRole } from "@prisma/client";
 
 test("Priority 4: Rescue Lifecycle, Suitability Validation, Expiry Persistence & Atomic Completion", async () => {
   const fleetOrg = await prisma.organization.findUnique({
@@ -194,4 +194,135 @@ test("Priority 4: Rescue Lifecycle, Suitability Validation, Expiry Persistence &
     ShipmentStatus.RESCUED,
     "Shipment must be atomically transitioned to RESCUED on rescue completion"
   );
+
+  // 7. Repeated Completion (Idempotency)
+  const repeatedComplete = await completeRescue({
+    opportunityId: opp.id,
+    actorId: operator.id,
+    outcomeNotes: "Cargo safely cross-docked into Sahyadri Cold Hub chamber 4 at 3.8°C",
+  });
+  assert.equal(repeatedComplete.status, RescueStatus.COMPLETED);
+
+  // 8. Milestones Rejected After Terminal State (COMPLETED)
+  await assert.rejects(
+    async () => {
+      await recordRescueMilestone({
+        opportunityId: opp.id,
+        actorId: partnerUser.id,
+        milestoneType: "TRANSFER_IN_PROGRESS",
+        notes: "Late milestone attempt after completion",
+      });
+    },
+    /INVALID_STATE_TRANSITION/,
+    "Recording milestones after completion must be rejected"
+  );
+
+  // 9. Unauthorized Service Calls Verification
+  const randomUser = await prisma.user.create({
+    data: {
+      email: `unauth-${Date.now()}@unauth.com`,
+      name: "Unauthorized Stranger",
+      passwordHash: "hash",
+      role: UserRole.OPERATOR,
+    },
+  });
+
+  await assert.rejects(
+    async () => {
+      await acceptRescueOffer({
+        opportunityId: opp.id,
+        offerId: validOffer.id,
+        actorId: randomUser.id,
+      });
+    },
+    /FORBIDDEN/,
+    "Random user must be forbidden from accepting offers"
+  );
+
+  // 11. Completion racing shipment cancellation
+  const cancelledShipment = await createShipment({
+    organizationId: fleetOrg.id,
+    title: "To Be Cancelled Shipment",
+    cargoType: "Fresh Produce",
+    tempMin: 2.0,
+    tempMax: 8.0,
+    originName: "Depot A",
+    destName: "Depot B",
+    actorId: operator.id,
+  });
+
+  const opp3 = await createRescueOpportunity({
+    organizationId: fleetOrg.id,
+    shipmentId: cancelledShipment.id,
+    title: "Cancelled Shipment Rescue",
+    cargoDescription: "Produce",
+    cargoWeightKg: 1000,
+    tempRequirementMin: 2.0,
+    tempRequirementMax: 8.0,
+    actorId: operator.id,
+  });
+
+  const offerForOpp3 = await submitRescueOffer({
+    opportunityId: opp3.id,
+    partnerOrgId: partnerOrg.id,
+    submittedById: partnerUser.id,
+    offerAmount: 10000,
+    capacityOfferedKg: 2000,
+    storageType: "COLD_STORAGE",
+    estimatedEtaMinutes: 15,
+  });
+
+  await acceptRescueOffer({
+    opportunityId: opp3.id,
+    offerId: offerForOpp3.id,
+    actorId: operator.id,
+  });
+
+  // Verify unauthorized actor forbidden from milestone and completion on active opportunity
+  await assert.rejects(
+    async () => {
+      await recordRescueMilestone({
+        opportunityId: opp3.id,
+        actorId: randomUser.id,
+        milestoneType: "EN_ROUTE_TO_CARGO",
+        notes: "Intruder milestone attempt",
+      });
+    },
+    /FORBIDDEN/,
+    "Random user must be forbidden from recording milestones"
+  );
+
+  await assert.rejects(
+    async () => {
+      await completeRescue({
+        opportunityId: opp3.id,
+        actorId: randomUser.id,
+        outcomeNotes: "Intruder completion attempt",
+      });
+    },
+    /FORBIDDEN/,
+    "Random user must be forbidden from completing rescue"
+  );
+
+  // Shipment cancelled concurrently
+  await prisma.shipment.update({
+    where: { id: cancelledShipment.id },
+    data: { status: ShipmentStatus.CANCELLED },
+  });
+
+  await assert.rejects(
+    async () => {
+      await completeRescue({
+        opportunityId: opp3.id,
+        actorId: operator.id,
+        outcomeNotes: "Attempting completion on cancelled shipment",
+      });
+    },
+    /INVALID_SHIPMENT_TRANSITION/,
+    "Rescue completion must fail if shipment was cancelled concurrently"
+  );
+
+  // 12. Final state consistency
+  const opp3Final = await prisma.rescueOpportunity.findUnique({ where: { id: opp3.id } });
+  assert.notEqual(opp3Final?.status, RescueStatus.COMPLETED);
 });
