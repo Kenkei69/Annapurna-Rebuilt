@@ -17,6 +17,7 @@ import {
   Building2,
   MapPin,
   Users,
+  BarChart3,
 } from "lucide-react";
 
 interface UserSession {
@@ -54,11 +55,12 @@ export function AppNavbar({ user }: { user?: UserSession | null }) {
 
   const operatorLinks = [
     { href: "/dashboard", label: "Dashboard", icon: Activity },
+    { href: "/fleet", label: "Fleet Console", icon: MapPin },
     { href: "/shipments", label: "Shipments", icon: Truck },
-    { href: "/fleet", label: "Fleet", icon: MapPin },
     { href: "/devices", label: "Devices", icon: Cpu },
     { href: "/alerts", label: "Alerts", icon: AlertTriangle },
     { href: "/rescue", label: "Rescue", icon: LifeBuoy },
+    { href: "/analytics", label: "Analytics", icon: BarChart3 },
     { href: "/audit", label: "Audit", icon: History },
     { href: "/org", label: "Organization", icon: Building2 },
   ];

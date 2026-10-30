@@ -16,6 +16,8 @@ import {
   Menu,
   X,
   Building2,
+  BarChart3,
+  MapPin,
 } from "lucide-react";
 
 interface AppShellProps {
@@ -41,11 +43,12 @@ export function AppShell({ children, user }: AppShellProps) {
 
   const navItems = [
     { label: "Overview", href: "/dashboard", icon: Activity },
+    { label: "Fleet Console", href: "/fleet", icon: MapPin },
     { label: "Shipments", href: "/shipments", icon: Truck },
     { label: "Alert Center", href: "/alerts", icon: AlertTriangle },
     { label: "Rescue Hub", href: "/rescue", icon: LifeBuoy },
+    { label: "Analytics & ESG", href: "/analytics", icon: BarChart3 },
     { label: "Edge Devices", href: "/devices", icon: Cpu },
-    { label: "Fleet Reefer", href: "/fleet", icon: Building2 },
     { label: "Simulator", href: "/simulator", icon: PlayCircle, highlight: true },
     { label: "Audit Trail", href: "/audit", icon: History },
   ];
