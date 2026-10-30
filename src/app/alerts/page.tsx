@@ -13,10 +13,32 @@ export default async function AlertsPage() {
 
   const alerts = await prisma.alert.findMany({
     where: user.role === "ADMIN" ? {} : { organizationId: orgId },
-    include: {
-      shipment: true,
-      acknowledgedBy: true,
-      resolvedBy: true,
+    select: {
+      id: true,
+      shipmentId: true,
+      ruleCode: true,
+      severity: true,
+      status: true,
+      summary: true,
+      createdAt: true,
+      acknowledgedAt: true,
+      resolvedAt: true,
+      ackNotes: true,
+      resolutionNotes: true,
+      // Safe actor projections: NO passwordHash
+      acknowledgedBy: { select: { id: true, name: true } },
+      resolvedBy: { select: { id: true, name: true } },
+      shipment: {
+        select: {
+          id: true,
+          trackingNumber: true,
+          title: true,
+          cargoType: true,
+          tempMin: true,
+          tempMax: true,
+          latestTemperature: true,
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -31,7 +53,15 @@ export default async function AlertsPage() {
         organization: user.memberships[0]?.organization,
       }}
     >
-      <AlertsClient alerts={alerts} userRole={user.role} />
+      <AlertsClient
+        alerts={alerts.map((a) => ({
+          ...a,
+          createdAt: a.createdAt.toISOString(),
+          acknowledgedAt: a.acknowledgedAt?.toISOString() ?? null,
+          resolvedAt: a.resolvedAt?.toISOString() ?? null,
+        }))}
+        userRole={user.role}
+      />
     </AppShell>
   );
 }

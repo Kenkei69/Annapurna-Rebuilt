@@ -15,6 +15,7 @@ import {
   PlusCircle,
   PlayCircle,
   Thermometer,
+  Building2,
 } from "lucide-react";
 import { AlertStatus, ShipmentStatus } from "@prisma/client";
 
@@ -26,21 +27,60 @@ export default async function DashboardPage() {
 
   const primaryMembership = user.memberships[0];
   const orgId = primaryMembership?.organizationId;
+
+  // Handle users without organization context
+  if (!primaryMembership && user.role !== "ADMIN") {
+    return (
+      <AppShell
+        user={{
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          organization: undefined,
+        }}
+      >
+        <div className="bg-white border border-slate-200 rounded-xl p-8 text-center max-w-lg mx-auto mt-12 shadow-xs">
+          <Building2 size={40} className="text-slate-400 mx-auto mb-3" />
+          <h2 className="text-lg font-bold text-slate-900">No Organization Association</h2>
+          <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+            Your user account is not currently linked to an active fleet or rescue organization.
+            Please contact your organization administrator to receive an invitation or register a new organization.
+          </p>
+          <div className="mt-6 flex justify-center gap-3">
+            <Link
+              href="/register"
+              className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-500 transition-colors"
+            >
+              Register Organization
+            </Link>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
   const isRescuePartner = primaryMembership?.organization?.type === "RESCUE_PARTNER";
 
   // If partner, fetch partner-specific stats
-  if (isRescuePartner) {
+  if (isRescuePartner && orgId) {
     const opportunities = await prisma.rescueOpportunity.findMany({
       where: {
         status: { in: ["OPEN", "OFFERED", "ACCEPTED", "IN_PROGRESS"] },
       },
       include: {
-        organization: true,
+        organization: { select: { id: true, name: true, slug: true, type: true } },
         offers: {
           where: { partnerOrgId: orgId },
+          select: { id: true, status: true, offerAmount: true },
         },
       },
       orderBy: { createdAt: "desc" },
+    });
+
+    const partnerProfile = await prisma.rescuePartnerProfile.findUnique({
+      where: { organizationId: orgId },
+      select: { isActive: true, onboardingComplete: true, verificationStatus: true },
     });
 
     const myOffersCount = await prisma.rescueOffer.count({
@@ -67,7 +107,7 @@ export default async function DashboardPage() {
             </div>
             <Link
               href="/rescue"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-500 shadow-xs"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-500 shadow-xs transition-colors"
             >
               <LifeBuoy size={16} />
               <span>Browse All Rescue Opportunities</span>
@@ -90,26 +130,34 @@ export default async function DashboardPage() {
             />
             <MetricCard
               title="Partner Facility"
-              value="Verified Ready"
-              subtitle={primaryMembership?.organization?.name}
+              value={partnerProfile?.isActive ? "Active" : "Inactive"}
+              subtitle={partnerProfile?.onboardingComplete ? "Onboarding complete · Self-reported" : "Onboarding incomplete"}
               icon={<Cpu size={20} />}
-              variant="success"
+              variant={partnerProfile?.isActive ? "success" : "warning"}
             />
           </div>
 
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
             <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-              <h2 className="text-sm font-bold text-slate-900">Available Cargo Rescue Opportunities</h2>
-              <span className="text-xs text-slate-500">{opportunities.length} open</span>
+              <div>
+                <h2 className="text-sm font-bold text-slate-900">Incident Marketplace (Real-Time Requests)</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Distressed reefer shipments broadcasting emergency offload capacity requests
+                </p>
+              </div>
+              <span className="text-xs font-semibold text-slate-400">
+                {opportunities.length} open operations
+              </span>
             </div>
+
             <div className="divide-y divide-slate-100">
               {opportunities.length === 0 ? (
-                <div className="p-8 text-center text-slate-400 text-sm">
-                  No distressed cargo opportunities currently pending.
+                <div className="p-8 text-center text-slate-400 text-xs">
+                  No active cargo rescue operations broadcasting currently.
                 </div>
               ) : (
                 opportunities.map((opp) => (
-                  <div key={opp.id} className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/60">
+                  <div key={opp.id} className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/70 transition-colors">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
                         <StatusBadge status={opp.status} />
@@ -124,7 +172,7 @@ export default async function DashboardPage() {
 
                     <Link
                       href={`/rescue?opportunityId=${opp.id}`}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg shrink-0"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg shrink-0 transition-colors"
                     >
                       <span>Submit Capacity Offer</span>
                       <ArrowRight size={14} />
@@ -140,13 +188,30 @@ export default async function DashboardPage() {
   }
 
   // Fleet Operator / Admin Dashboard
+  const tenantWhere = user.role === "ADMIN" ? {} : { organizationId: orgId ?? "FAIL_CLOSED" };
+
   const shipments = await prisma.shipment.findMany({
-    where: user.role === "ADMIN" ? {} : { organizationId: orgId },
-    include: {
-      assignedVehicle: true,
-      assignedDevice: true,
+    where: tenantWhere,
+    select: {
+      id: true,
+      trackingNumber: true,
+      title: true,
+      cargoType: true,
+      tempMin: true,
+      tempMax: true,
+      destName: true,
+      originName: true,
+      status: true,
+      latestTemperature: true,
+      assignedVehicle: {
+        select: { id: true, licensePlate: true, makeModel: true },
+      },
+      assignedDevice: {
+        select: { id: true, deviceIdentifier: true, hardwareModel: true, status: true },
+      },
       alerts: {
         where: { status: { in: [AlertStatus.ACTIVE, AlertStatus.ACKNOWLEDGED] } },
+        select: { id: true },
       },
     },
     orderBy: { createdAt: "desc" },
@@ -154,23 +219,30 @@ export default async function DashboardPage() {
   });
 
   const totalShipments = await prisma.shipment.count({
-    where: user.role === "ADMIN" ? {} : { organizationId: orgId },
+    where: tenantWhere,
   });
 
   const inTransitCount = await prisma.shipment.count({
     where: {
-      ...(user.role === "ADMIN" ? {} : { organizationId: orgId }),
+      ...tenantWhere,
       status: ShipmentStatus.IN_TRANSIT,
     },
   });
 
   const activeAlerts = await prisma.alert.findMany({
     where: {
-      ...(user.role === "ADMIN" ? {} : { organizationId: orgId }),
+      ...tenantWhere,
       status: { in: [AlertStatus.ACTIVE, AlertStatus.ACKNOWLEDGED] },
     },
-    include: {
-      shipment: true,
+    select: {
+      id: true,
+      shipmentId: true,
+      ruleCode: true,
+      severity: true,
+      summary: true,
+      shipment: {
+        select: { trackingNumber: true, cargoType: true },
+      },
     },
     orderBy: { createdAt: "desc" },
     take: 5,
@@ -178,7 +250,7 @@ export default async function DashboardPage() {
 
   const openRescues = await prisma.rescueOpportunity.count({
     where: {
-      ...(user.role === "ADMIN" ? {} : { organizationId: orgId }),
+      ...tenantWhere,
       status: { in: ["OPEN", "OFFERED", "ACCEPTED", "IN_PROGRESS"] },
     },
   });
@@ -345,7 +417,7 @@ export default async function DashboardPage() {
                         <td className="px-6 py-4">
                           <Link
                             href={`/shipments/${s.id}`}
-                            className="font-bold text-slate-900 hover:text-emerald-600 transition-colors"
+                            className="font-bold text-slate-900 hover:text-emerald-600 transition-colors font-mono"
                           >
                             {s.trackingNumber}
                           </Link>
