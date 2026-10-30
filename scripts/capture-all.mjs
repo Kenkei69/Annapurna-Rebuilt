@@ -41,6 +41,20 @@ async function main() {
     const partnerCookieValue = partnerCookieMatch ? partnerCookieMatch[1] : "";
     console.log("🔑 Partner session cookie obtained:", partnerCookieValue ? "Valid" : "Missing");
 
+    // Obtain driver session cookie
+    const driverLoginRes = await fetch("http://localhost:3000/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "driver.raj@transcold.com",
+        password: "Driver123!",
+      }),
+    });
+    const driverCookieHeader = driverLoginRes.headers.get("set-cookie") || "";
+    const driverCookieMatch = driverCookieHeader.match(/annapurna_session=([^;]+)/);
+    const driverCookieValue = driverCookieMatch ? driverCookieMatch[1] : "";
+    console.log("🔑 Driver session cookie obtained:", driverCookieValue ? "Valid" : "Missing");
+
   // 2. Launch headless Chromium with remote debugging
   const chrome = spawn("/repl/tools/bin/chromium", [
     "--headless",
@@ -137,6 +151,10 @@ async function main() {
       { name: "rescue-partner-desktop", url: "http://localhost:3000/rescue", width: 1440, height: 900, cookie: partnerCookieValue },
       { name: "simulator-desktop", url: "http://localhost:3000/simulator", width: 1440, height: 900 },
       { name: "audit-desktop", url: "http://localhost:3000/audit", width: 1440, height: 900 },
+      { name: "devices-desktop", url: "http://localhost:3000/devices", width: 1440, height: 900 },
+      { name: "fleet-desktop", url: "http://localhost:3000/fleet", width: 1440, height: 900 },
+      { name: "org-desktop", url: "http://localhost:3000/org", width: 1440, height: 900 },
+      { name: "driver-desktop", url: "http://localhost:3000/driver", width: 1440, height: 900, cookie: driverCookieValue },
     ];
 
     for (const p of pages) {

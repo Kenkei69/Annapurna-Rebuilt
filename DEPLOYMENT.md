@@ -24,6 +24,7 @@ Configure the following environment variables in your Vercel Project Settings:
 | `SESSION_SECRET` | 32+ character HMAC secret for session cookies | **Yes** | `f6a9e10...` (Use `openssl rand -hex 32`) |
 | `NODE_ENV` | Runtime environment | **Yes** | `production` |
 | `ENABLE_SIMULATOR` | Lab simulator endpoint toggle (`true` / `false`) | No (Default: `false` in production) | `false` |
+| `CRON_SECRET` | Bearer token for scheduled telemetry gap evaluation | Optional | `cron_sec_...` |
 | `GEMINI_API_KEY` | Google Gemini API key for advisory assistance | Optional | `AIzaSy...` (Falls back to expert system if omitted) |
 
 ---
@@ -71,3 +72,13 @@ If an issue is detected post-deployment:
 2. **Database Rollback:**
    - Schema modifications adhere to non-breaking expansion: columns added as optional (`?`) or with defaults before making required in subsequent releases.
    - Point-in-time recovery (PITR) is natively available on Neon/Supabase to rewind transactional state if needed.
+
+---
+
+## 5. Observability & Health Monitoring
+
+- **Liveness Probe:** `GET /api/health` returns HTTP 200 `{ status: "ok", service: "annapurna-rebuilt" }`. Use for container orchestrator restart policies.
+- **Readiness Probe:** `GET /api/ready` performs an active database query (`SELECT 1`), returning 200 `{ status: "ready" }` or 503 `{ status: "degraded" }` with latency metrics. Use for ingress traffic routing.
+- **Scheduled Telemetry Evaluation:** In-transit shipments missing heartbeat packets for > 15 minutes are converted to `ALERTED` by calling `POST /api/telemetry/evaluate-gaps` with `Authorization: Bearer <CRON_SECRET>` via Vercel Cron, AWS EventBridge, or cron trigger.
+- **Request Correlation:** The edge proxy (`src/proxy.ts`) stamps incoming requests with an `x-request-id` header propagated to responses and audit trails.
+
