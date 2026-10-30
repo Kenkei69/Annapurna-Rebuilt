@@ -11,9 +11,9 @@ const ProvisionSchema = z.object({
   hardwareModel: z.string().optional(),
 });
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const user = await requireAuth();
+    const user = await requireAuth(req);
     const primaryOrg = await getUserPrimaryOrg(user.id);
     if (!primaryOrg && user.role !== UserRole.ADMIN) {
       return NextResponse.json({ devices: [] });
@@ -26,7 +26,16 @@ export async function GET() {
 
     const devices = await prisma.device.findMany({
       where: whereClause,
-      include: {
+      select: {
+        id: true,
+        organizationId: true,
+        deviceIdentifier: true,
+        hardwareModel: true,
+        status: true,
+        isSimulated: true,
+        lastSeenAt: true,
+        createdAt: true,
+        updatedAt: true,
         shipments: {
           where: { status: { in: ["DISPATCHED", "IN_TRANSIT", "ALERTED", "RESCUE_PENDING"] } },
           select: { id: true, trackingNumber: true, title: true, status: true },
@@ -44,7 +53,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const user = await requireAuth();
+    const user = await requireAuth(req);
     const primaryOrg = await getUserPrimaryOrg(user.id);
     if (!primaryOrg) {
       return NextResponse.json({ error: "No organization associated with user" }, { status: 400 });

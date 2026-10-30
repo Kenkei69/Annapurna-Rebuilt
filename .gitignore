@@ -11,6 +11,9 @@
 # Testing & Coverage
 /coverage
 
+# File Uploads
+/uploads/
+
 # Environment & Credentials
 .env
 .env*.local

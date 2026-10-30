@@ -54,7 +54,8 @@ export async function provisionDevice(params: {
       tx
     );
 
-    return created;
+    const { apiKeyHash: _hash, ...safeDevice } = created;
+    return safeDevice;
   });
 
   return {

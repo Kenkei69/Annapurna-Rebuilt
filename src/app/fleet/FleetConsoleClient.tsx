@@ -121,6 +121,9 @@ export function FleetConsoleClient({
   const [tempMinFilter, setTempMinFilter] = useState(searchParams.get("tempMin") || "");
   const [tempMaxFilter, setTempMaxFilter] = useState(searchParams.get("tempMax") || "");
   const [sortBy, setSortBy] = useState(searchParams.get("sortBy") || "DEFAULT");
+  const pageParam = parseInt(searchParams.get("page") || "1", 10);
+  const [currentPage, setCurrentPage] = useState(isNaN(pageParam) || pageParam < 1 ? 1 : pageParam);
+  const pageSize = 8;
 
   // Selection state
   const [selectedShipmentId, setSelectedShipmentId] = useState<string | null>(
@@ -135,6 +138,7 @@ export function FleetConsoleClient({
   // Form inputs
   const [formTitle, setFormTitle] = useState("");
   const [formCargoType, setFormCargoType] = useState("Fresh Produce (Tomatoes)");
+  const [formWeightKg, setFormWeightKg] = useState(2500);
   const [formTempMin, setFormTempMin] = useState(2.0);
   const [formTempMax, setFormTempMax] = useState(6.0);
   const [formOrigin, setFormOrigin] = useState("Nashik Agro Hub");
@@ -251,6 +255,12 @@ export function FleetConsoleClient({
     sortBy,
   ]);
 
+  const totalPages = Math.ceil(filteredShipments.length / pageSize) || 1;
+  const paginatedShipments = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredShipments.slice(start, start + pageSize);
+  }, [filteredShipments, currentPage, pageSize]);
+
   // Selected shipment object
   const selectedShipment = useMemo(() => {
     if (!selectedShipmentId) return filteredShipments[0] || null;
@@ -311,6 +321,7 @@ export function FleetConsoleClient({
         body: JSON.stringify({
           title: formTitle,
           cargoType: formCargoType,
+          cargoWeightKg: formWeightKg,
           tempMin: formTempMin,
           tempMax: formTempMax,
           originName: formOrigin,
@@ -582,7 +593,7 @@ export function FleetConsoleClient({
                     </button>
                   </div>
                 ) : (
-                  filteredShipments.map((s) => {
+                  paginatedShipments.map((s) => {
                     const isSelected = s.id === selectedShipment?.id;
                     const freshness = getConnectionFreshness(s.latestRecordedAt);
                     const isAlert = s.status === "ALERTED" || s.status === "RESCUE_PENDING";
@@ -656,6 +667,39 @@ export function FleetConsoleClient({
                   })
                 )}
               </div>
+
+              {/* Pagination Footer */}
+              {totalPages > 1 && (
+                <div className="p-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between text-xs text-slate-600">
+                  <span className="text-[11px]">
+                    Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => {
+                        const prev = Math.max(1, currentPage - 1);
+                        setCurrentPage(prev);
+                        updateUrlParams({ page: prev > 1 ? String(prev) : null });
+                      }}
+                      disabled={currentPage === 1}
+                      className="px-2.5 py-1 bg-white border border-slate-200 hover:bg-slate-100 rounded text-xs font-semibold disabled:opacity-40"
+                    >
+                      Prev
+                    </button>
+                    <button
+                      onClick={() => {
+                        const next = Math.min(totalPages, currentPage + 1);
+                        setCurrentPage(next);
+                        updateUrlParams({ page: String(next) });
+                      }}
+                      disabled={currentPage >= totalPages}
+                      className="px-2.5 py-1 bg-white border border-slate-200 hover:bg-slate-100 rounded text-xs font-semibold disabled:opacity-40"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Center Column: Interactive Fleet Map (5 cols) */}
@@ -898,8 +942,8 @@ export function FleetConsoleClient({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-1">
                   <label className="block text-slate-700 font-semibold mb-1">
                     Cargo Category *
                   </label>
@@ -916,9 +960,23 @@ export function FleetConsoleClient({
                   </select>
                 </div>
 
-                <div>
+                <div className="col-span-1">
                   <label className="block text-slate-700 font-semibold mb-1">
-                    Assigned Vehicle *
+                    Payload Weight (kg) *
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    required
+                    value={formWeightKg}
+                    onChange={(e) => setFormWeightKg(parseFloat(e.target.value) || 0)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div className="col-span-1">
+                  <label className="block text-slate-700 font-semibold mb-1">
+                    Assigned Vehicle
                   </label>
                   <select
                     value={formVehicleId}

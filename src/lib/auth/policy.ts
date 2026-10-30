@@ -250,6 +250,7 @@ export async function loadAuthorizedShipmentDetails(
       latestLat: true,
       latestLng: true,
       latestRecordedAt: true,
+      cargoWeightKg: true,
       createdAt: true,
       updatedAt: true,
       organization: {
@@ -325,6 +326,11 @@ export async function loadAuthorizedShipmentDetails(
               estimatedEtaMinutes: true,
               status: true,
               notes: true,
+              counterAmount: true,
+              counterNotes: true,
+              counteredAt: true,
+              counterStatus: true,
+              isPartnerApproved: true,
               createdAt: true,
               partnerOrg: { select: { id: true, name: true, slug: true } },
               submittedBy: { select: { id: true, name: true, email: true } },
@@ -359,6 +365,38 @@ export async function loadAuthorizedShipmentDetails(
           isSimulated: true,
         },
       },
+      photos: {
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          fileName: true,
+          mimeType: true,
+          fileSizeBytes: true,
+          widthPx: true,
+          heightPx: true,
+          caption: true,
+          createdAt: true,
+          uploadedBy: { select: { id: true, name: true, email: true } },
+        },
+      },
+      assessments: {
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        select: {
+          id: true,
+          riskLevel: true,
+          summary: true,
+          advisoryQuestion: true,
+          language: true,
+          source: true,
+          suggestedActions: true,
+          draftDriverUpdate: true,
+          uncertaintyNotes: true,
+          warmingVelocity: true,
+          estimatedMinutes: true,
+          createdAt: true,
+        },
+      },
     },
   });
 
@@ -386,6 +424,7 @@ export async function loadAuthorizedShipmentDetails(
       // If merely bidding, redact fleet internal maxBudget to prevent price sniping
       if (auth.accessLevel === "RESCUE_PARTNER_BIDDING") {
         safeShipment.rescueOpportunity.maxBudget = null;
+        safeShipment.photos = [];
       }
     }
 

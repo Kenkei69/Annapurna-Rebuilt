@@ -17,7 +17,7 @@ export async function createRescueOpportunity(params: {
   shipmentId: string;
   title: string;
   cargoDescription: string;
-  cargoWeightKg: number;
+  cargoWeightKg?: number;
   tempRequirementMin: number;
   tempRequirementMax: number;
   urgency?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
@@ -71,7 +71,8 @@ export async function createRescueOpportunity(params: {
       );
     }
 
-    if (params.cargoWeightKg <= 0) {
+    const effectiveWeightKg = params.cargoWeightKg ?? shipment.cargoWeightKg ?? 1000.0;
+    if (effectiveWeightKg <= 0) {
       throw new ValidationError("cargoWeightKg must be greater than zero.");
     }
 
@@ -81,7 +82,7 @@ export async function createRescueOpportunity(params: {
         shipmentId: params.shipmentId,
         title: params.title,
         cargoDescription: params.cargoDescription,
-        cargoWeightKg: params.cargoWeightKg,
+        cargoWeightKg: effectiveWeightKg,
         tempRequirementMin: params.tempRequirementMin,
         tempRequirementMax: params.tempRequirementMax,
         urgency: params.urgency || "HIGH",
@@ -731,5 +732,277 @@ export async function completeRescue(params: {
     );
 
     return completedOpp;
+  });
+}
+
+/**
+ * Submit Counter-Offer from Fleet Dispatcher/Owner
+ */
+export async function submitCounterOffer(params: {
+  opportunityId: string;
+  offerId: string;
+  counterAmount: number;
+  counterNotes?: string;
+  actorId: string;
+  actorEmail?: string;
+}) {
+  if (params.counterAmount <= 0) {
+    throw new ValidationError("counterAmount must be greater than zero.");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    // 1. Row-level exclusive lock on the opportunity row
+    const [oppRow] = await tx.$queryRaw<
+      Array<{
+        id: string;
+        status: string;
+        organizationId: string;
+      }>
+    >`
+      SELECT "id", "status", "organizationId"
+      FROM "RescueOpportunity"
+      WHERE "id" = ${params.opportunityId}
+      FOR UPDATE
+    `;
+
+    if (!oppRow) {
+      throw new NotFoundError("RESCUE_OPPORTUNITY_NOT_FOUND");
+    }
+
+    // 2. Authorization check: Fleet Owner/Dispatcher or Admin
+    const callerUser = await tx.user.findUnique({
+      where: { id: params.actorId },
+      select: { role: true },
+    });
+    const isAdmin = callerUser?.role === "ADMIN";
+
+    const callerMembership = await tx.membership.findUnique({
+      where: {
+        userId_organizationId: {
+          userId: params.actorId,
+          organizationId: oppRow.organizationId,
+        },
+      },
+    });
+
+    const isFleetAuth =
+      callerMembership &&
+      (callerMembership.orgRole === "OWNER" || callerMembership.orgRole === "DISPATCHER");
+
+    if (!isAdmin && !isFleetAuth) {
+      throw new ForbiddenError(
+        "FORBIDDEN: Only fleet owners, dispatchers, or administrators can submit counter-offers."
+      );
+    }
+
+    // 3. Status checks
+    if (
+      oppRow.status !== RescueStatus.OPEN &&
+      oppRow.status !== RescueStatus.OFFERED
+    ) {
+      throw new ConflictError(
+        `CONCURRENT_ACCEPTANCE_CONFLICT: Cannot counter-offer when opportunity status is '${oppRow.status}'.`
+      );
+    }
+
+    // 4. Validate Offer
+    const offer = await tx.rescueOffer.findUnique({
+      where: { id: params.offerId },
+    });
+
+    if (!offer || offer.opportunityId !== params.opportunityId) {
+      throw new ValidationError(
+        "OFFER_MISMATCH: Offer does not exist or does not belong to this rescue opportunity."
+      );
+    }
+
+    if (offer.status !== OfferStatus.SUBMITTED) {
+      throw new ConflictError(
+        `OFFER_NOT_SUBMITTED: Offer status is '${offer.status}'; cannot submit counter-offer.`
+      );
+    }
+
+    if (offer.validUntil <= new Date()) {
+      await tx.rescueOffer.update({
+        where: { id: offer.id },
+        data: { status: OfferStatus.EXPIRED },
+      });
+      throw new ConflictError(
+        `OFFER_EXPIRED: This offer expired at ${offer.validUntil.toISOString()}`
+      );
+    }
+
+    // 5. Update Offer with Counter Details
+    const updatedOffer = await tx.rescueOffer.update({
+      where: { id: params.offerId },
+      data: {
+        counterAmount: params.counterAmount,
+        counterNotes: params.counterNotes?.trim() || null,
+        counteredAt: new Date(),
+        counterStatus: "SUBMITTED",
+        isPartnerApproved: false,
+      },
+    });
+
+    // 6. Record Audit Event
+    await recordAuditEvent(
+      {
+        organizationId: oppRow.organizationId,
+        actorId: params.actorId,
+        actorEmail: params.actorEmail,
+        action: "RESCUE_COUNTER_OFFER_SUBMITTED",
+        entityType: "RescueOffer",
+        entityId: offer.id,
+        details: {
+          originalOfferAmount: offer.offerAmount,
+          counterAmount: params.counterAmount,
+          counterNotes: params.counterNotes?.trim() || null,
+        },
+      },
+      tx
+    );
+
+    return updatedOffer;
+  });
+}
+
+/**
+ * Partner Response to Counter-Offer (Accept or Decline)
+ */
+export async function respondToCounterOffer(params: {
+  opportunityId: string;
+  offerId: string;
+  accept: boolean;
+  actorId: string;
+  actorEmail?: string;
+}) {
+  return prisma.$transaction(async (tx) => {
+    // 1. Lock opportunity row
+    const [oppRow] = await tx.$queryRaw<
+      Array<{
+        id: string;
+        status: string;
+        organizationId: string;
+      }>
+    >`
+      SELECT "id", "status", "organizationId"
+      FROM "RescueOpportunity"
+      WHERE "id" = ${params.opportunityId}
+      FOR UPDATE
+    `;
+
+    if (!oppRow) {
+      throw new NotFoundError("RESCUE_OPPORTUNITY_NOT_FOUND");
+    }
+
+    // 2. Validate Offer
+    const offer = await tx.rescueOffer.findUnique({
+      where: { id: params.offerId },
+    });
+
+    if (!offer || offer.opportunityId !== params.opportunityId) {
+      throw new ValidationError(
+        "OFFER_MISMATCH: Offer does not exist or does not belong to this rescue opportunity."
+      );
+    }
+
+    // 3. Authorization check: Actor must belong to partner organization
+    const callerUser = await tx.user.findUnique({
+      where: { id: params.actorId },
+      select: { role: true },
+    });
+    const isAdmin = callerUser?.role === "ADMIN";
+
+    const partnerMembership = await tx.membership.findUnique({
+      where: {
+        userId_organizationId: {
+          userId: params.actorId,
+          organizationId: offer.partnerOrgId,
+        },
+      },
+    });
+
+    if (!isAdmin && !partnerMembership) {
+      throw new ForbiddenError(
+        "FORBIDDEN: Only members of the offering partner organization can respond to counter-offers."
+      );
+    }
+
+    if (offer.status !== OfferStatus.SUBMITTED) {
+      throw new ConflictError(
+        `OFFER_NOT_SUBMITTED: Offer status is '${offer.status}'; cannot respond to counter-offer.`
+      );
+    }
+
+    if (offer.counterStatus !== "SUBMITTED" || offer.counterAmount == null) {
+      throw new ConflictError(
+        "NO_PENDING_COUNTER: There is no active counter-offer pending response on this offer."
+      );
+    }
+
+    if (offer.validUntil <= new Date()) {
+      await tx.rescueOffer.update({
+        where: { id: offer.id },
+        data: { status: OfferStatus.EXPIRED },
+      });
+      throw new ConflictError(
+        `OFFER_EXPIRED: This offer expired at ${offer.validUntil.toISOString()}`
+      );
+    }
+
+    // 4. Update offer based on acceptance
+    let updatedOffer;
+    if (params.accept) {
+      updatedOffer = await tx.rescueOffer.update({
+        where: { id: params.offerId },
+        data: {
+          offerAmount: offer.counterAmount, // Update the quote to agreed counter amount
+          counterStatus: "ACCEPTED",
+          isPartnerApproved: true,
+        },
+      });
+
+      await recordAuditEvent(
+        {
+          organizationId: oppRow.organizationId,
+          actorId: params.actorId,
+          actorEmail: params.actorEmail,
+          action: "RESCUE_COUNTER_OFFER_ACCEPTED",
+          entityType: "RescueOffer",
+          entityId: offer.id,
+          details: {
+            newAgreedAmount: offer.counterAmount,
+            previousOfferAmount: offer.offerAmount,
+          },
+        },
+        tx
+      );
+    } else {
+      updatedOffer = await tx.rescueOffer.update({
+        where: { id: params.offerId },
+        data: {
+          counterStatus: "DECLINED",
+          isPartnerApproved: false,
+        },
+      });
+
+      await recordAuditEvent(
+        {
+          organizationId: oppRow.organizationId,
+          actorId: params.actorId,
+          actorEmail: params.actorEmail,
+          action: "RESCUE_COUNTER_OFFER_DECLINED",
+          entityType: "RescueOffer",
+          entityId: offer.id,
+          details: {
+            declinedCounterAmount: offer.counterAmount,
+            retainedOfferAmount: offer.offerAmount,
+          },
+        },
+        tx
+      );
+    }
+
+    return updatedOffer;
   });
 }

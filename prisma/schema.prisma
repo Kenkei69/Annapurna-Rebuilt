@@ -109,6 +109,7 @@ model User {
   submittedOffers    RescueOffer[]         @relation("SubmittedOffers")
   recordedMilestones RescueMilestone[]     @relation("RecordedMilestones")
   auditEvents        AuditEvent[]
+  cargoPhotos        CargoPhoto[]
 }
 
 model Organization {
@@ -209,16 +210,19 @@ model Shipment {
   latestLat        Float?
   latestLng        Float?
   latestRecordedAt DateTime?
+  cargoWeightKg    Float?         @default(1000.0)
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
-  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  assignedVehicle   Vehicle?           @relation(fields: [assignedVehicleId], references: [id], onDelete: SetNull)
-  assignedDevice    Device?            @relation(fields: [assignedDeviceId], references: [id], onDelete: SetNull)
-  assignedDriver    User?              @relation("DriverShipments", fields: [assignedDriverId], references: [id], onDelete: SetNull)
+  organization      Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignedVehicle   Vehicle?             @relation(fields: [assignedVehicleId], references: [id], onDelete: SetNull)
+  assignedDevice    Device?              @relation(fields: [assignedDeviceId], references: [id], onDelete: SetNull)
+  assignedDriver    User?                @relation("DriverShipments", fields: [assignedDriverId], references: [id], onDelete: SetNull)
   telemetryReadings TelemetryReading[]
   alerts            Alert[]
   rescueOpportunity RescueOpportunity?
+  photos            CargoPhoto[]
+  assessments       IncidentAssessment[]
 
   @@index([organizationId])
   @@index([status])
@@ -348,6 +352,11 @@ model RescueOffer {
   validUntil         DateTime
   status             OfferStatus @default(SUBMITTED)
   notes              String?
+  counterAmount      Float?
+  counterNotes       String?
+  counteredAt        DateTime?
+  counterStatus      String?
+  isPartnerApproved  Boolean     @default(false)
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
 
@@ -402,4 +411,53 @@ model TelemetryScanCursor {
   lastScanCompletedAt DateTime?
   updatedAt           DateTime  @updatedAt
 }
+
+model CargoPhoto {
+  id            String   @id @default(uuid())
+  shipmentId    String
+  storagePath   String
+  fileName      String
+  mimeType      String
+  fileSizeBytes Int
+  widthPx       Int?
+  heightPx      Int?
+  uploadedById  String
+  caption       String?
+  aiVerdict     String?
+  aiConfidence  Float?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  shipment    Shipment             @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  uploadedBy  User                 @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  assessments IncidentAssessment[]
+
+  @@index([shipmentId])
+  @@index([uploadedById])
+}
+
+model IncidentAssessment {
+  id                String   @id @default(uuid())
+  shipmentId        String
+  cargoPhotoId      String?
+  riskLevel         String
+  summary           String
+  advisoryQuestion  String?
+  language          String   @default("en")
+  source            String
+  suggestedActions  String
+  draftDriverUpdate String?
+  uncertaintyNotes  String?
+  warmingVelocity   Float?
+  estimatedMinutes  Int?
+  createdAt         DateTime @default(now())
+
+  shipment   Shipment    @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  cargoPhoto CargoPhoto? @relation(fields: [cargoPhotoId], references: [id], onDelete: SetNull)
+
+  @@index([shipmentId])
+  @@index([cargoPhotoId])
+  @@index([createdAt])
+}
+
 

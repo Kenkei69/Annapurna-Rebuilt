@@ -30,6 +30,7 @@ export async function createShipment(params: {
   assignedVehicleId?: string;
   assignedDeviceId?: string;
   assignedDriverId?: string;
+  cargoWeightKg?: number;
   actorId?: string;
   actorEmail?: string;
 }) {
@@ -96,6 +97,7 @@ export async function createShipment(params: {
         assignedVehicleId: params.assignedVehicleId,
         assignedDeviceId: params.assignedDeviceId,
         assignedDriverId: params.assignedDriverId,
+        cargoWeightKg: params.cargoWeightKg ?? 1000.0,
         status: params.assignedVehicleId && params.assignedDeviceId
           ? ShipmentStatus.DISPATCHED
           : ShipmentStatus.DRAFT,

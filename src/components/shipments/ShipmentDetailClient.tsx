@@ -19,6 +19,13 @@ import {
   Check,
   Send,
   Radio,
+  Volume2,
+  VolumeX,
+  Camera,
+  UploadCloud,
+  Languages,
+  Image as ImageIcon,
+  X,
 } from "lucide-react";
 
 interface ShipmentDetailProps {
@@ -37,8 +44,28 @@ export function ShipmentDetailClient({
 
   // AI Assistant State
   const [aiLoading, setAiLoading] = useState(false);
-  const [aiResult, setAiResult] = useState<any>(null);
+  const [aiResult, setAiResult] = useState<any>(shipment.assessments?.[0] ? {
+    riskLevel: shipment.assessments[0].riskLevel,
+    summary: shipment.assessments[0].summary,
+    advisoryAdvice: shipment.assessments[0].advisoryQuestion ? `Advisory: ${shipment.assessments[0].summary}` : undefined,
+    suggestedActions: JSON.parse(shipment.assessments[0].suggestedActions || "[]"),
+    draftDriverUpdate: shipment.assessments[0].draftDriverUpdate,
+    uncertaintyNotes: shipment.assessments[0].uncertaintyNotes,
+    source: shipment.assessments[0].source,
+    warmingVelocityPer10Min: shipment.assessments[0].warmingVelocity,
+    estimatedMinutesToSpoilage: shipment.assessments[0].estimatedMinutes,
+  } : null);
   const [copiedDraft, setCopiedDraft] = useState(false);
+  const [advisoryQuestion, setAdvisoryQuestion] = useState("");
+  const [selectedLanguage, setSelectedLanguage] = useState<"en" | "hi" | "mr" | "ta" | "te" | "bn" | "gu">("en");
+  const [budgetRemaining, setBudgetRemaining] = useState<number | null>(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  // Cargo Photo State
+  const [photos, setPhotos] = useState<any[]>(shipment.photos || []);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoCaption, setPhotoCaption] = useState("");
+  const [previewPhoto, setPreviewPhoto] = useState<any | null>(null);
 
   // Alert Action State
   const [actingAlertId, setActingAlertId] = useState<string | null>(null);
@@ -93,6 +120,43 @@ export function ShipmentDetailClient({
     (shipment.latestTemperature > shipment.tempMax ||
       shipment.latestTemperature < shipment.tempMin);
 
+  useEffect(() => {
+    return () => {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  const handleSpeak = () => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      setToast({ type: "error", message: "Browser speech synthesis is not supported in this browser." });
+      return;
+    }
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+    if (!aiResult) return;
+    const textToRead = `${aiResult.summary}. ${aiResult.advisoryAdvice || ""} Actions: ${aiResult.suggestedActions?.join(". ") || ""}. Driver draft: ${aiResult.draftDriverUpdate || ""}`;
+    const utterance = new SpeechSynthesisUtterance(textToRead);
+    const langMap: Record<string, string> = {
+      en: "en-US",
+      hi: "hi-IN",
+      mr: "mr-IN",
+      ta: "ta-IN",
+      te: "te-IN",
+      bn: "bn-IN",
+      gu: "gu-IN",
+    };
+    utterance.lang = langMap[selectedLanguage] || "en-US";
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    setIsSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  };
+
   // Trigger AI Incident Analysis
   const runAiAnalysis = async () => {
     try {
@@ -101,17 +165,9 @@ export function ShipmentDetailClient({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          shipmentTitle: shipment.title,
-          cargoType: shipment.cargoType,
-          tempMin: shipment.tempMin,
-          tempMax: shipment.tempMax,
-          currentTemp: shipment.latestTemperature ?? (shipment.tempMin + shipment.tempMax) / 2,
-          readings: shipment.telemetryReadings || [],
-          activeAlerts: shipment.alerts.map((a: any) => ({
-            ruleCode: a.ruleCode,
-            summary: a.summary,
-            severity: a.severity,
-          })),
+          shipmentId: shipment.id,
+          advisoryQuestion: advisoryQuestion.trim() || undefined,
+          language: selectedLanguage,
         }),
       });
 
@@ -119,6 +175,9 @@ export function ShipmentDetailClient({
         throw new Error(res.error || "AI Analysis failed");
       }
       setAiResult(res.data.analysis);
+      if (res.data.budgetRemaining != null) {
+        setBudgetRemaining(res.data.budgetRemaining);
+      }
       setToast({ type: "success", message: "AI Heuristic incident assessment updated." });
     } catch (err: any) {
       console.error("AI Analysis error:", err);
@@ -128,6 +187,51 @@ export function ShipmentDetailClient({
       });
     } finally {
       setAiLoading(false);
+    }
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setToast({ type: "error", message: "Only JPEG, PNG, or WebP images are allowed." });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setToast({ type: "error", message: "Image exceeds 5 MB size limit." });
+      return;
+    }
+
+    try {
+      setUploadingPhoto(true);
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const dataUrl = event.target?.result as string;
+        const res = await safeFetch(`/api/shipments/${shipment.id}/photos`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            dataUrl,
+            fileName: file.name,
+            caption: photoCaption || undefined,
+          }),
+        });
+
+        if (!res.ok || !res.data?.photo) {
+          throw new Error(res.error || "Failed to upload photo");
+        }
+
+        setPhotos((prev) => [res.data.photo, ...prev]);
+        setPhotoCaption("");
+        setToast({ type: "success", message: "Cargo photo uploaded and securely stored." });
+        setUploadingPhoto(false);
+      };
+      reader.readAsDataURL(file);
+    } catch (err: any) {
+      setToast({ type: "error", message: err.message || "Failed to upload photo" });
+      setUploadingPhoto(false);
     }
   };
 
@@ -457,15 +561,81 @@ export function ShipmentDetailClient({
             </div>
           </div>
 
-          <button
-            onClick={runAiAnalysis}
-            disabled={aiLoading}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-xs disabled:opacity-50 transition-colors shrink-0"
-          >
-            <Sparkles size={14} />
-            <span>{aiLoading ? "Analyzing Incident..." : "Analyze Incident with AI"}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {aiResult && (
+              <button
+                onClick={handleSpeak}
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition-colors shrink-0"
+                title="Read AI advisory aloud using browser speech synthesis"
+              >
+                {isSpeaking ? (
+                  <>
+                    <VolumeX size={14} className="text-rose-400 animate-pulse" />
+                    <span className="text-rose-300">Stop Speech</span>
+                  </>
+                ) : (
+                  <>
+                    <Volume2 size={14} className="text-emerald-400" />
+                    <span>Read Aloud</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            <button
+              onClick={runAiAnalysis}
+              disabled={aiLoading}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-xs disabled:opacity-50 transition-colors shrink-0"
+            >
+              <Sparkles size={14} />
+              <span>{aiLoading ? "Analyzing Incident..." : "Analyze Incident with AI"}</span>
+            </button>
+          </div>
         </div>
+
+        {/* Advisory Input & Language Controls */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-4 p-3 bg-slate-950/80 rounded-lg border border-slate-800">
+          <div className="sm:col-span-3">
+            <label className="block text-[11px] font-medium text-slate-400 mb-1">
+              Custom Advisory Incident Question (Optional)
+            </label>
+            <input
+              type="text"
+              value={advisoryQuestion}
+              onChange={(e) => setAdvisoryQuestion(e.target.value)}
+              placeholder="e.g. Can vaccines survive ambient 32°C for 90 minutes without backup reefer?"
+              className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-md text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-emerald-500"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-slate-400 mb-1 flex items-center gap-1">
+              <Languages size={12} className="text-slate-400" />
+              <span>Response Language</span>
+            </label>
+            <select
+              value={selectedLanguage}
+              onChange={(e) => setSelectedLanguage(e.target.value as any)}
+              className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-md text-xs text-white focus:outline-hidden focus:border-emerald-500"
+            >
+              <option value="en">English (en)</option>
+              <option value="hi">हिन्दी - Hindi (hi)</option>
+              <option value="mr">मराठी - Marathi (mr)</option>
+              <option value="ta">தமிழ் - Tamil (ta)</option>
+              <option value="te">తెలుగు - Telugu (te)</option>
+              <option value="bn">বাংলা - Bengali (bn)</option>
+              <option value="gu">ગુજરાતી - Gujarati (gu)</option>
+            </select>
+          </div>
+        </div>
+
+        {budgetRemaining !== null && (
+          <div className="text-[11px] text-slate-400 mb-3 flex items-center gap-1.5">
+            <Clock size={12} className="text-emerald-400" />
+            <span>
+              Request budget: <strong>{budgetRemaining}</strong> of 20 evaluations remaining for this hour.
+            </span>
+          </div>
+        )}
 
         {aiResult ? (
           <div className="space-y-4 text-xs">
@@ -496,6 +666,13 @@ export function ShipmentDetailClient({
               <p className="font-semibold text-slate-200 mb-1">Operational Incident Summary:</p>
               <p className="text-slate-300 leading-relaxed">{aiResult.summary}</p>
             </div>
+
+            {aiResult.advisoryAdvice && (
+              <div className="bg-emerald-950/40 p-4 rounded-lg border border-emerald-800/60">
+                <p className="font-semibold text-emerald-300 mb-1">Specific Incident Guidance &amp; Consultation:</p>
+                <p className="text-emerald-100 leading-relaxed">{aiResult.advisoryAdvice}</p>
+              </div>
+            )}
 
             <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700/60">
               <p className="font-semibold text-slate-200 mb-2">Recommended Corrective Actions:</p>
@@ -541,6 +718,114 @@ export function ShipmentDetailClient({
           </div>
         )}
       </div>
+
+      {/* Private Cargo Assessment Photos Section */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+        <div className="px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Camera size={18} className="text-slate-700" />
+            <div>
+              <h3 className="font-bold text-sm text-slate-900">Cargo Photos &amp; Condition Inspection</h3>
+              <p className="text-xs text-slate-500">
+                Private photographic evidence, dimension verification, and assessment audit trail
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={photoCaption}
+              onChange={(e) => setPhotoCaption(e.target.value)}
+              placeholder="Caption (e.g. Broken door latch)"
+              className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-hidden focus:border-emerald-500 w-48"
+            />
+            <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors shrink-0">
+              <UploadCloud size={14} />
+              <span>{uploadingPhoto ? "Uploading..." : "Upload Photo"}</span>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                disabled={uploadingPhoto}
+                onChange={handlePhotoUpload}
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="p-6">
+          {photos.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-lg">
+              <ImageIcon size={32} className="mx-auto mb-2 text-slate-300" />
+              <p className="font-semibold text-slate-600">No cargo inspection photos uploaded yet</p>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Drivers and dispatchers can upload JPEG, PNG, or WebP photos up to 5 MB for verifiable condition audits.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-4">
+              {photos.map((p) => (
+                <div
+                  key={p.id}
+                  onClick={() => setPreviewPhoto(p)}
+                  className="group relative cursor-pointer border border-slate-200 rounded-lg overflow-hidden bg-slate-50 hover:border-emerald-500 transition-all shadow-2xs"
+                >
+                  <div className="aspect-4/3 w-full bg-slate-100 flex items-center justify-center overflow-hidden">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/api/shipments/${shipment.id}/photos/${p.id}`}
+                      alt={p.caption || p.fileName}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                    />
+                  </div>
+                  <div className="p-2 bg-white">
+                    <p className="font-semibold text-[11px] text-slate-800 truncate" title={p.caption || p.fileName}>
+                      {p.caption || p.fileName}
+                    </p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      {p.widthPx && p.heightPx ? `${p.widthPx}x${p.heightPx} px • ` : ""}
+                      {(p.fileSizeBytes / 1024).toFixed(0)} KB
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Modal for full-size photo preview */}
+      {previewPhoto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4">
+          <div className="relative max-w-3xl w-full bg-slate-900 rounded-xl overflow-hidden shadow-2xl border border-slate-800">
+            <div className="px-4 py-3 bg-slate-950 flex items-center justify-between border-b border-slate-800">
+              <span className="text-xs font-semibold text-white truncate">
+                {previewPhoto.caption || previewPhoto.fileName}
+              </span>
+              <button
+                onClick={() => setPreviewPhoto(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-md"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-4 flex items-center justify-center max-h-[70vh] overflow-hidden bg-slate-950/60">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/api/shipments/${shipment.id}/photos/${previewPhoto.id}`}
+                alt={previewPhoto.caption || previewPhoto.fileName}
+                className="max-h-[65vh] w-auto object-contain rounded-sm"
+              />
+            </div>
+            <div className="px-4 py-2.5 bg-slate-950 text-[11px] text-slate-400 border-t border-slate-800 flex justify-between">
+              <span>MIME: {previewPhoto.mimeType}</span>
+              <span>Dimensions: {previewPhoto.widthPx}x{previewPhoto.heightPx} px</span>
+              <span>Uploaded: {new Date(previewPhoto.createdAt).toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Active & Resolved Alerts Section */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">

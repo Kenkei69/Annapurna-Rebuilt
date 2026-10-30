@@ -13,6 +13,7 @@ import {
   Award,
   MapPin,
   AlertTriangle,
+  Check,
 } from "lucide-react";
 
 export interface PartnerProfileData {
@@ -108,6 +109,12 @@ export function RescueHubClient({
   const [completeNotes, setCompleteNotes] = useState("");
   const [submittingComplete, setSubmittingComplete] = useState(false);
   const [showCompleteModal, setShowCompleteModal] = useState(false);
+
+  // Counter Offer State
+  const [counteringOfferId, setCounteringOfferId] = useState<string | null>(null);
+  const [counterAmountInput, setCounterAmountInput] = useState("");
+  const [counterNotesInput, setCounterNotesInput] = useState("");
+  const [submittingCounter, setSubmittingCounter] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -246,6 +253,68 @@ export function RescueHubClient({
       setToast({ type: "error", message: err.message });
     } finally {
       setAcceptingOfferId(null);
+    }
+  };
+
+  // Submit Counter-Offer (Fleet Operator action)
+  const handleCounterOffer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedOpp || !counteringOfferId) return;
+    try {
+      setSubmittingCounter(true);
+      const res = await safeFetch(
+        `/api/rescue/opportunities/${selectedOpp.id}/offers/${counteringOfferId}/counter`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            counterAmount: Number(counterAmountInput),
+            counterNotes: counterNotesInput || undefined,
+          }),
+        }
+      );
+      if (!res.ok) {
+        throw new Error(res.error || "Failed to submit counter-offer");
+      }
+      setToast({
+        type: "success",
+        message: "Counter-offer successfully submitted to partner facility.",
+      });
+      setCounteringOfferId(null);
+      setCounterAmountInput("");
+      setCounterNotesInput("");
+      router.refresh();
+    } catch (err: any) {
+      setToast({ type: "error", message: err.message });
+    } finally {
+      setSubmittingCounter(false);
+    }
+  };
+
+  // Partner Response to Counter-Offer
+  const handleCounterResponse = async (offerId: string, accept: boolean) => {
+    if (!selectedOpp) return;
+    try {
+      const res = await safeFetch(
+        `/api/rescue/opportunities/${selectedOpp.id}/offers/${offerId}/counter-response`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accept }),
+        }
+      );
+      if (!res.ok) {
+        throw new Error(res.error || "Failed to respond to counter-offer");
+      }
+      setToast({
+        type: "success",
+        message: accept
+          ? "Counter-offer accepted! Quote successfully updated."
+          : "Counter-offer declined. Retaining original quote.",
+      });
+      router.refresh();
+    } catch (err: any) {
+      setToast({ type: "error", message: err.message });
     }
   };
 
@@ -535,6 +604,45 @@ export function RescueHubClient({
                               <span>•</span>
                               <span>ETA: <strong>~{offer.estimatedEtaMinutes} min</strong></span>
                             </div>
+
+                            {/* Counter-Offer Status Badges */}
+                            {offer.counterStatus === "SUBMITTED" && (
+                              <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-900 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                <div>
+                                  <span className="font-bold">Fleet Counter-Offer: ₹{offer.counterAmount?.toLocaleString()}</span>
+                                  {offer.counterNotes && <span className="ml-1 text-amber-700">({offer.counterNotes})</span>}
+                                </div>
+                                {isPartner && (
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      onClick={() => handleCounterResponse(offer.id, true)}
+                                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-semibold"
+                                    >
+                                      Accept Counter
+                                    </button>
+                                    <button
+                                      onClick={() => handleCounterResponse(offer.id, false)}
+                                      className="px-2.5 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[11px] font-semibold"
+                                    >
+                                      Decline
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {offer.isPartnerApproved && (
+                              <div className="mt-1 text-[11px] font-medium text-emerald-700 flex items-center gap-1">
+                                <Check size={12} />
+                                <span>Counter quote agreed and accepted by partner</span>
+                              </div>
+                            )}
+
+                            {offer.counterStatus === "DECLINED" && (
+                              <div className="mt-1 text-[11px] font-medium text-slate-500">
+                                Counter-offer was declined; original quote remains active
+                              </div>
+                            )}
                           </div>
 
                           <div className="flex sm:flex-col items-center sm:items-end justify-between gap-2 shrink-0">
@@ -542,17 +650,28 @@ export function RescueHubClient({
                               ₹{offer.offerAmount.toLocaleString()}
                             </span>
 
-                            {/* Operator Accept Offer Button */}
+                            {/* Operator Accept Offer / Counter Buttons */}
                             {!isPartner &&
                               (selectedOpp.status === "OPEN" || selectedOpp.status === "OFFERED") &&
                               offer.status === "SUBMITTED" && (
-                                <button
-                                  onClick={() => handleAcceptOffer(offer.id)}
-                                  disabled={acceptingOfferId !== null}
-                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold shadow-xs disabled:opacity-50"
-                                >
-                                  {acceptingOfferId === offer.id ? "Assigning..." : "Accept Proposal"}
-                                </button>
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    onClick={() => {
+                                      setCounteringOfferId(offer.id);
+                                      setCounterAmountInput(String(Math.round(offer.offerAmount * 0.9)));
+                                    }}
+                                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-semibold border border-slate-200"
+                                  >
+                                    Counter Quote
+                                  </button>
+                                  <button
+                                    onClick={() => handleAcceptOffer(offer.id)}
+                                    disabled={acceptingOfferId !== null}
+                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold shadow-xs disabled:opacity-50"
+                                  >
+                                    {acceptingOfferId === offer.id ? "Assigning..." : "Accept Proposal"}
+                                  </button>
+                                </div>
                               )}
                           </div>
                         </div>
@@ -989,6 +1108,65 @@ export function RescueHubClient({
                   className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-semibold shadow-xs cursor-pointer"
                 >
                   {submittingOnboarding ? "Saving Profile..." : "Verify & Activate Profile"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Counter Offer Modal */}
+      {counteringOfferId && (
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl border border-slate-200">
+            <h3 className="text-base font-bold text-slate-900 mb-2">Submit Fleet Counter-Offer</h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Propose an adjusted compensation quote for this rescue opportunity. The partner facility will review and approve or decline.
+            </p>
+
+            <form onSubmit={handleCounterOffer} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Proposed Counter Amount (₹)
+                </label>
+                <input
+                  type="number"
+                  required
+                  min={1}
+                  value={counterAmountInput}
+                  onChange={(e) => setCounterAmountInput(e.target.value)}
+                  placeholder="e.g. 24000"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900 font-mono font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Negotiation Notes / Operational Terms
+                </label>
+                <textarea
+                  rows={3}
+                  value={counterNotesInput}
+                  onChange={(e) => setCounterNotesInput(e.target.value)}
+                  placeholder="e.g. Rate adjusted based on 25km proximity and standard dock unloading equipment."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setCounteringOfferId(null)}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingCounter}
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold shadow-xs"
+                >
+                  {submittingCounter ? "Submitting..." : "Send Counter-Offer"}
                 </button>
               </div>
             </form>
