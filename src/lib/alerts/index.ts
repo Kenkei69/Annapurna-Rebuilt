@@ -15,6 +15,11 @@ export async function evaluateTelemetryAlerts(
 ) {
   const db = externalTx ?? prisma;
 
+  // Lock shipment row to serialize concurrent evaluations and avoid race conditions
+  await db.$queryRaw`
+    SELECT "id" FROM "Shipment" WHERE "id" = ${shipmentId} FOR UPDATE
+  `;
+
   const shipment = await db.shipment.findUnique({
     where: { id: shipmentId },
     include: {
@@ -32,7 +37,74 @@ export async function evaluateTelemetryAlerts(
 
   if (!shipment) return [];
 
+  // Terminal lifecycle guard: do not evaluate alerts or mutate status for completed or cancelled shipments
+  const isTerminal =
+    shipment.status === ShipmentStatus.DELIVERED ||
+    shipment.status === ShipmentStatus.CANCELLED ||
+    shipment.status === ShipmentStatus.RESCUED;
+  if (isTerminal) return [];
+
   const createdAlerts = [];
+
+  // Recovery Criteria with Hysteresis:
+  // If temperature returns within safe operating thresholds with an explicit 0.5°C hysteresis margin,
+  // active/acknowledged thermal breach alerts auto-resolve.
+  const HYSTERESIS = 0.5;
+  const isSafelyWithinBand =
+    reading.temperature <= (shipment.tempMax - HYSTERESIS) &&
+    reading.temperature >= (shipment.tempMin + HYSTERESIS);
+
+  if (isSafelyWithinBand) {
+    const activeBreaches = shipment.alerts.filter(
+      (a) =>
+        (a.ruleCode === "TEMP_HIGH_BREACH" ||
+         a.ruleCode === "SUSTAINED_BREACH" ||
+         a.ruleCode === "TEMP_LOW_BREACH") &&
+        (a.status === AlertStatus.ACTIVE || a.status === AlertStatus.ACKNOWLEDGED)
+    );
+
+    for (const breach of activeBreaches) {
+      await db.alert.update({
+        where: { id: breach.id },
+        data: {
+          status: AlertStatus.RESOLVED,
+          resolvedAt: new Date(),
+          resolutionNotes: `Auto-resolved: Temperature stabilized safely within operating band at ${reading.temperature}°C (0.5°C hysteresis margin satisfied).`,
+        },
+      });
+
+      await recordAuditEvent(
+        {
+          organizationId: shipment.organizationId,
+          action: "ALERT_RESOLVED",
+          entityType: "Alert",
+          entityId: breach.id,
+          details: {
+            ruleCode: breach.ruleCode,
+            temperature: reading.temperature,
+            autoResolved: true,
+            hysteresisMargin: HYSTERESIS,
+          },
+        },
+        externalTx
+      );
+    }
+
+    if (activeBreaches.length > 0) {
+      const remaining = await db.alert.count({
+        where: {
+          shipmentId: shipment.id,
+          status: { in: [AlertStatus.ACTIVE, AlertStatus.ACKNOWLEDGED] },
+        },
+      });
+      if (remaining === 0 && shipment.status === ShipmentStatus.ALERTED) {
+        await db.shipment.updateMany({
+          where: { id: shipment.id, status: ShipmentStatus.ALERTED },
+          data: { status: ShipmentStatus.IN_TRANSIT },
+        });
+      }
+    }
+  }
 
   // 1. High Temperature Breach & Sustained Breach Escalation
   if (reading.temperature > shipment.tempMax) {
@@ -72,25 +144,27 @@ export async function evaluateTelemetryAlerts(
           },
         });
 
-        // If prior high breach exists, supersede it with acknowledgment linking to escalation
+        // If prior high breach exists, supersede it with acknowledgment linking to escalation while preserving prior notes
         if (existingHighBreach) {
+          const priorNotes = existingHighBreach.ackNotes
+            ? `${existingHighBreach.ackNotes} | Escalated to CRITICAL SUSTAINED_BREACH (Alert ID ${alert.id})`
+            : `Automatically escalated to CRITICAL SUSTAINED_BREACH (Alert ID ${alert.id}).`;
+
           await db.alert.update({
             where: { id: existingHighBreach.id },
             data: {
               status: AlertStatus.ACKNOWLEDGED,
-              ackNotes: `Automatically escalated to CRITICAL SUSTAINED_BREACH (Alert ID ${alert.id}).`,
-              acknowledgedAt: new Date(),
+              ackNotes: priorNotes,
+              acknowledgedAt: existingHighBreach.acknowledgedAt || new Date(),
             },
           });
         }
 
         // Update shipment status to ALERTED if currently IN_TRANSIT
-        if (shipment.status === ShipmentStatus.IN_TRANSIT) {
-          await db.shipment.update({
-            where: { id: shipment.id },
-            data: { status: ShipmentStatus.ALERTED },
-          });
-        }
+        await db.shipment.updateMany({
+          where: { id: shipment.id, status: ShipmentStatus.IN_TRANSIT },
+          data: { status: ShipmentStatus.ALERTED },
+        });
 
         await recordAuditEvent(
           {
@@ -131,12 +205,10 @@ export async function evaluateTelemetryAlerts(
           },
         });
 
-        if (shipment.status === ShipmentStatus.IN_TRANSIT) {
-          await db.shipment.update({
-            where: { id: shipment.id },
-            data: { status: ShipmentStatus.ALERTED },
-          });
-        }
+        await db.shipment.updateMany({
+          where: { id: shipment.id, status: ShipmentStatus.IN_TRANSIT },
+          data: { status: ShipmentStatus.ALERTED },
+        });
 
         await recordAuditEvent(
           {
@@ -429,8 +501,8 @@ export async function resolveAlert(params: {
     });
 
     if (remainingActive === 0 && alert.shipment.status === ShipmentStatus.ALERTED) {
-      await tx.shipment.update({
-        where: { id: alert.shipmentId },
+      await tx.shipment.updateMany({
+        where: { id: alert.shipmentId, status: ShipmentStatus.ALERTED },
         data: { status: ShipmentStatus.IN_TRANSIT },
       });
     }

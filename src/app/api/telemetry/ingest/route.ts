@@ -30,10 +30,11 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
-    // Ensure payload deviceId matches authenticated header
+    // Ensure payload deviceId matches authenticated header and enforce trusted source labeling
     const parsed = TelemetryPayloadSchema.parse({
       ...body,
       deviceId: device.deviceIdentifier,
+      isSimulated: device.isSimulated,
     });
 
     const result = await ingestTelemetryReading(parsed);

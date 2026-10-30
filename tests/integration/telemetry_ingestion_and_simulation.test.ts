@@ -284,4 +284,169 @@ test("Priority 2 & 3: Telemetry Ingestion, Out-of-Order Safety, Simulator Isolat
   const ourMissingAlert = missingAlerts.find((a) => a.shipmentId === shipment.id);
   assert.ok(ourMissingAlert, "Shipment should receive MISSING_TELEMETRY alert");
   assert.equal(ourMissingAlert?.ruleCode, "MISSING_TELEMETRY");
+
+  // 11. Simultaneous Duplicate Packets Ingested Concurrently
+  const dupSeq = 55;
+  const [dupResA, dupResB] = await Promise.all([
+    ingestTelemetryReading({
+      deviceId: simDevId,
+      sequence: dupSeq,
+      recordedAt: new Date().toISOString(),
+      temperature: 4.2,
+      isSimulated: true,
+    }),
+    ingestTelemetryReading({
+      deviceId: simDevId,
+      sequence: dupSeq,
+      recordedAt: new Date().toISOString(),
+      temperature: 4.2,
+      isSimulated: true,
+    }),
+  ]);
+
+  // One accepted, one duplicate_ignored (or both safely handled)
+  const results = [dupResA.status, dupResB.status];
+  assert.ok(results.includes("accepted"), "One concurrent packet must be accepted");
+  assert.ok(results.includes("duplicate_ignored"), "One concurrent packet must be marked duplicate_ignored");
+
+  const createdCount = await prisma.telemetryReading.count({
+    where: { deviceId: simDevice.id, sequence: dupSeq },
+  });
+  assert.equal(createdCount, 1, "Database unique constraint must ensure exactly 1 reading row exists");
+
+  // 12. Late Historical Reading Safety
+  const shipBeforeLate = await prisma.shipment.findUnique({ where: { id: shipment.id } });
+  const liveLatestTemp = shipBeforeLate?.latestTemperature;
+  const liveLatestTime = shipBeforeLate?.latestRecordedAt?.getTime();
+
+  // Ingest reading from 2 hours ago with extreme breach temperature
+  const lateTime = new Date(Date.now() - 7200000);
+  const lateRes = await ingestTelemetryReading({
+    deviceId: simDevId,
+    sequence: 5, // older sequence
+    recordedAt: lateTime.toISOString(),
+    temperature: 19.5, // extreme high temp in the past
+    isSimulated: true,
+  });
+  assert.equal(lateRes.triggeredAlertsCount, 0, "Late reading must NOT trigger active live alerts");
+
+  const shipAfterLate = await prisma.shipment.findUnique({
+    where: { id: shipment.id },
+    include: { alerts: { where: { status: AlertStatus.ACTIVE } } },
+  });
+  assert.equal(
+    shipAfterLate?.latestTemperature,
+    liveLatestTemp,
+    "Late reading must NOT overwrite live latestTemperature"
+  );
+  assert.equal(
+    shipAfterLate?.latestRecordedAt?.getTime(),
+    liveLatestTime,
+    "Late reading must NOT overwrite live latestRecordedAt"
+  );
+
+  // 13. Ingestion Racing Shipment Terminal State (DELIVERED/CANCELLED)
+  await prisma.shipment.update({
+    where: { id: shipment.id },
+    data: { status: ShipmentStatus.DELIVERED },
+  });
+
+  await ingestTelemetryReading({
+    deviceId: simDevId,
+    sequence: 60,
+    recordedAt: new Date().toISOString(),
+    temperature: 4.0,
+    isSimulated: true,
+  });
+
+  const shipDeliveredCheck = await prisma.shipment.findUnique({ where: { id: shipment.id } });
+  assert.equal(
+    shipDeliveredCheck?.status,
+    ShipmentStatus.DELIVERED,
+    "Ingestion must never revert a DELIVERED terminal status back to IN_TRANSIT"
+  );
+
+  // 14. Recovery with Hysteresis and Renewed Breach
+  const recoveryShipment = await createShipment({
+    organizationId: fleetOrg.id,
+    title: "Hysteresis Recovery Test Shipment",
+    cargoType: "Dairy",
+    tempMin: 2.0,
+    tempMax: 6.0,
+    originName: "Depot X",
+    destName: "Depot Y",
+    assignedDeviceId: simDevice.id,
+    assignedVehicleId: vehicle.id,
+    actorId: operator.id,
+  });
+
+  // Breach 1 -> ALERTED
+  await ingestTelemetryReading({
+    deviceId: simDevId,
+    sequence: 70,
+    recordedAt: new Date(Date.now() - 60000).toISOString(),
+    temperature: 8.5,
+    isSimulated: true,
+  });
+
+  const recShipBreached = await prisma.shipment.findUnique({
+    where: { id: recoveryShipment.id },
+    include: { alerts: { where: { status: AlertStatus.ACTIVE } } },
+  });
+  assert.equal(recShipBreached?.status, ShipmentStatus.ALERTED);
+  assert.equal(recShipBreached?.alerts.length, 1);
+
+  // Temperature recovers within hysteresis band (4.0°C <= 6.0 - 0.5)
+  await ingestTelemetryReading({
+    deviceId: simDevId,
+    sequence: 71,
+    recordedAt: new Date().toISOString(),
+    temperature: 4.0,
+    isSimulated: true,
+  });
+
+  const recShipRecovered = await prisma.shipment.findUnique({
+    where: { id: recoveryShipment.id },
+    include: { alerts: true },
+  });
+  assert.equal(recShipRecovered?.status, ShipmentStatus.IN_TRANSIT, "Status must return to IN_TRANSIT on recovery");
+  const autoResolvedAlert = recShipRecovered?.alerts.find((a) => a.ruleCode === "TEMP_HIGH_BREACH");
+  assert.equal(autoResolvedAlert?.status, AlertStatus.RESOLVED);
+  assert.ok(autoResolvedAlert?.resolutionNotes?.includes("0.5°C hysteresis margin satisfied"));
+
+  // Renewed breach after recovery generates a fresh incident
+  await ingestTelemetryReading({
+    deviceId: simDevId,
+    sequence: 72,
+    recordedAt: new Date(Date.now() + 1000).toISOString(),
+    temperature: 9.0,
+    isSimulated: true,
+  });
+
+  const recShipRenewed = await prisma.shipment.findUnique({
+    where: { id: recoveryShipment.id },
+    include: { alerts: { where: { status: AlertStatus.ACTIVE } } },
+  });
+  assert.equal(recShipRenewed?.status, ShipmentStatus.ALERTED);
+  assert.equal(recShipRenewed?.alerts.length, 1, "New active breach alert must be created on renewed breach");
+
+  // 15. Revoked / Suspended Device Rejected
+  await prisma.device.update({
+    where: { id: simDevice.id },
+    data: { status: "SUSPENDED" },
+  });
+
+  await assert.rejects(
+    async () => {
+      await ingestTelemetryReading({
+        deviceId: simDevId,
+        sequence: 80,
+        recordedAt: new Date().toISOString(),
+        temperature: 4.0,
+        isSimulated: true,
+      });
+    },
+    /DEVICE_NOT_ACTIVE/,
+    "Revoked device must be rejected by telemetry ingestion"
+  );
 });

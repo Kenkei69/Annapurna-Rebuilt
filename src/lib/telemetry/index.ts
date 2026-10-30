@@ -131,36 +131,73 @@ export async function ingestTelemetryReading(payload: TelemetryPayload) {
       });
 
       // Handle shipment update with out-of-order and status protection
+      let isStale = false;
+      let isTerminal = false;
+
       if (activeShipment) {
-        const isStale =
-          activeShipment.latestRecordedAt !== null &&
-          recordedDate < activeShipment.latestRecordedAt;
+        // Lock shipment row to coordinate atomically with concurrent transitions or readings
+        const [lockedShipment] = await tx.$queryRaw<
+          Array<{
+            id: string;
+            status: string;
+            latestRecordedAt: Date | null;
+            latestHumidity: number | null;
+            latestLat: number | null;
+            latestLng: number | null;
+          }>
+        >`
+          SELECT "id", "status", "latestRecordedAt", "latestHumidity", "latestLat", "latestLng"
+          FROM "Shipment"
+          WHERE "id" = ${activeShipment.id}
+          FOR UPDATE
+        `;
 
-        // Ingested readings must not overwrite newer latestRecordedAt timestamps
-        // or revert terminal/advanced shipment states
-        if (!isStale) {
-          const nextStatus =
-            activeShipment.status === ShipmentStatus.DISPATCHED
-              ? ShipmentStatus.IN_TRANSIT
-              : undefined;
+        if (lockedShipment) {
+          isTerminal =
+            lockedShipment.status === ShipmentStatus.DELIVERED ||
+            lockedShipment.status === ShipmentStatus.CANCELLED ||
+            lockedShipment.status === ShipmentStatus.RESCUED;
 
-          await tx.shipment.update({
-            where: { id: activeShipment.id },
-            data: {
-              latestTemperature: payload.temperature,
-              latestHumidity: payload.humidity ?? activeShipment.latestHumidity,
-              latestLat: payload.latitude ?? activeShipment.latestLat,
-              latestLng: payload.longitude ?? activeShipment.latestLng,
-              latestRecordedAt: recordedDate,
-              ...(nextStatus ? { status: nextStatus } : {}),
-            },
+          // Find latest persisted sequence for this device
+          const lastReading = await tx.telemetryReading.findFirst({
+            where: { deviceId: device.id },
+            orderBy: { sequence: "desc" },
+            select: { sequence: true },
           });
+
+          // Documented tie-break rule: If timestamp is earlier, or timestamp matches but sequence is not newer, reading is stale
+          isStale =
+            lockedShipment.latestRecordedAt !== null &&
+            (recordedDate < lockedShipment.latestRecordedAt ||
+              (recordedDate.getTime() === lockedShipment.latestRecordedAt.getTime() &&
+                payload.sequence <= (lastReading?.sequence || 0)));
+
+          // Ingested readings must not overwrite newer latestRecordedAt timestamps
+          // and must NEVER revert terminal shipment states (DELIVERED, CANCELLED, RESCUED)
+          if (!isStale && !isTerminal) {
+            const nextStatus =
+              lockedShipment.status === ShipmentStatus.DISPATCHED
+                ? ShipmentStatus.IN_TRANSIT
+                : undefined;
+
+            await tx.shipment.update({
+              where: { id: lockedShipment.id },
+              data: {
+                latestTemperature: payload.temperature,
+                latestHumidity: payload.humidity ?? lockedShipment.latestHumidity,
+                latestLat: payload.latitude ?? lockedShipment.latestLat,
+                latestLng: payload.longitude ?? lockedShipment.latestLng,
+                latestRecordedAt: recordedDate,
+                ...(nextStatus ? { status: nextStatus } : {}),
+              },
+            });
+          }
         }
       }
 
-      // Evaluate alerts within the transaction
+      // Evaluate alerts within the transaction only for current non-stale, non-terminal readings
       let alerts: unknown[] = [];
-      if (activeShipment) {
+      if (activeShipment && !isStale && !isTerminal) {
         alerts = await evaluateTelemetryAlerts(activeShipment.id, createdReading, tx);
       }
 
