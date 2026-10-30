@@ -19,8 +19,21 @@ To execute all unit and integration tests:
 npm test
 ```
 
-### Verified Test Suites (36 / 36 Passing):
+### Verified Test Suites (49 / 49 Passing):
 ```
+✔ Advanced Workflows: Credential Projection, Cargo Photos, Counter-Offers & Advisory AI
+  ✔ Device credential projection strictly excludes apiKeyHash
+  ✔ Shipment creation persists cargoWeightKg and bounds properly
+  ✔ Private cargo photo upload, validation, and access isolation
+  ✔ Counter-offer lifecycle: proposal, partner response, single-winner acceptance
+  ✔ AI Advisory incident questions, language localization, and request budget
+✔ Phase 2 Core Workflows: Health, Readiness, Device Lifecycle, Gaps & Org Management
+  ✔ Liveness endpoint (/api/health) returns 200 and 'ok'
+  ✔ Readiness endpoint (/api/ready) verifies DB connectivity and returns 200
+  ✔ Device status transitions via PATCH /api/devices/[id]
+  ✔ Telemetry gap evaluation detects stalled in-transit shipments
+  ✔ Organization settings and member management enforces owner authority
+  ✔ Public tracking endpoint returns sanitized data and denies unmapped requests
 ✔ Partner Onboarding - Real onboarding lifecycle and bid qualification invariant
 ✔ Cargo Rescue Concurrency - True PostgreSQL concurrent acceptance race condition
 ✔ Cargo Rescue Concurrency - Idempotent re-acceptance of the same winning offer
@@ -58,10 +71,21 @@ npm test
 ✔ Telemetry Edge Cases - Sequence deduplication prevents duplicate row creation
 ✔ Telemetry Isolation - Ingesting simulated telemetry into operational device is rejected
 
-ℹ tests 36
-ℹ pass 36
+ℹ tests 49
+ℹ pass 49
 ℹ fail 0
 ```
+
+---
+
+## Automated Browser Journey Verification (`npm run test:browser`)
+Executes real automated headless Chromium interaction via Chrome DevTools Protocol (CDP):
+- Authenticated Operator sign-in with HTTP session cookie extraction
+- Navigation to `/fleet` and verification of Leaflet DOM container rendering
+- Navigation to `/rescue` verifying rescue opportunity listings
+- Navigation to `/analytics` verifying ESG carbon offset metrics and Indian legal compliance corpus
+- Navigation to `/org` and real DOM mutation testing of dark theme persistence via `localStorage`
+- Cookie clearing and verification of public `/tracking` rendering without authentication credentials
 
 ---
 
