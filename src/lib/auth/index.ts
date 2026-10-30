@@ -127,8 +127,17 @@ export function verifySessionToken(token: string): SessionPayload | null {
   }
 }
 
-export async function getSession(): Promise<SessionPayload | null> {
+export async function getSession(req?: Request): Promise<SessionPayload | null> {
   try {
+    if (req) {
+      const cookieHeader = req.headers.get("cookie");
+      if (cookieHeader) {
+        const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE_NAME}=([^;]+)`));
+        if (match && match[1]) {
+          return verifySessionToken(match[1]);
+        }
+      }
+    }
     const cookieStore = await cookies();
     const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
     if (!token) return null;
@@ -138,8 +147,8 @@ export async function getSession(): Promise<SessionPayload | null> {
   }
 }
 
-export async function getCurrentUser() {
-  const session = await getSession();
+export async function getCurrentUser(req?: Request) {
+  const session = await getSession(req);
   if (!session) return null;
 
   const user = await prisma.user.findUnique({
@@ -164,16 +173,16 @@ export async function getCurrentUser() {
   return user;
 }
 
-export async function requireAuth() {
-  const user = await getCurrentUser();
+export async function requireAuth(req?: Request) {
+  const user = await getCurrentUser(req);
   if (!user) {
     throw new Error("UNAUTHORIZED");
   }
   return user;
 }
 
-export async function requireRole(allowedRoles: UserRole[]) {
-  const user = await requireAuth();
+export async function requireRole(allowedRoles: UserRole[], req?: Request) {
+  const user = await requireAuth(req);
   if (!allowedRoles.includes(user.role)) {
     throw new Error("FORBIDDEN");
   }

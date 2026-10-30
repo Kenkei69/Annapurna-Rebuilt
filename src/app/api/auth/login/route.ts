@@ -16,9 +16,20 @@ export async function POST(req: Request) {
 
     const user = await prisma.user.findUnique({
       where: { email: email.toLowerCase().trim() },
-      include: {
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        passwordHash: true, // needed for verification — never serialized to response
         memberships: {
-          include: { organization: true },
+          select: {
+            id: true,
+            orgRole: true,
+            organization: {
+              select: { id: true, name: true, slug: true, type: true },
+            },
+          },
         },
       },
     });

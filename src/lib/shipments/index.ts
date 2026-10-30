@@ -8,8 +8,9 @@ export { canTransitionShipment };
 
 export function generateTrackingNumber(): string {
   const dateStr = new Date().toISOString().slice(2, 10).replace(/-/g, "");
+  const entropy = Math.random().toString(36).slice(2, 6).toUpperCase();
   const rand = Math.floor(1000 + Math.random() * 9000);
-  return `APN-${dateStr}-${rand}`;
+  return `APN-${dateStr}-${entropy}${rand}`;
 }
 
 export async function createShipment(params: {

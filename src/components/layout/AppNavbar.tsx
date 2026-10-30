@@ -14,6 +14,9 @@ import {
   LogOut,
   Menu,
   X,
+  Building2,
+  MapPin,
+  Users,
 } from "lucide-react";
 
 interface UserSession {
@@ -44,15 +47,41 @@ export function AppNavbar({ user }: { user?: UserSession | null }) {
     }
   };
 
-  const navLinks = [
+  // Role-adaptive navigation
+  const isDriver = user?.role === "DRIVER";
+  const isPartner = user?.role === "PARTNER";
+  const isAdmin = user?.role === "ADMIN";
+
+  const operatorLinks = [
     { href: "/dashboard", label: "Dashboard", icon: Activity },
     { href: "/shipments", label: "Shipments", icon: Truck },
+    { href: "/fleet", label: "Fleet", icon: MapPin },
+    { href: "/devices", label: "Devices", icon: Cpu },
     { href: "/alerts", label: "Alerts", icon: AlertTriangle },
-    { href: "/rescue", label: "Rescue Portal", icon: LifeBuoy },
-    { href: "/devices", label: "Edge Devices", icon: Cpu },
-    { href: "/simulator", label: "Simulator", icon: Activity },
-    { href: "/audit", label: "Audit Log", icon: History },
+    { href: "/rescue", label: "Rescue", icon: LifeBuoy },
+    { href: "/audit", label: "Audit", icon: History },
+    { href: "/org", label: "Organization", icon: Building2 },
   ];
+
+  const driverLinks = [
+    { href: "/driver", label: "My Routes", icon: Truck },
+    { href: "/alerts", label: "Alerts", icon: AlertTriangle },
+  ];
+
+  const partnerLinks = [
+    { href: "/dashboard", label: "Hub", icon: Activity },
+    { href: "/rescue", label: "Opportunities", icon: LifeBuoy },
+    { href: "/org", label: "Organization", icon: Building2 },
+  ];
+
+  const adminLinks = [
+    { href: "/dashboard", label: "Dashboard", icon: Activity },
+    { href: "/admin", label: "Admin", icon: Users },
+    { href: "/audit", label: "Audit", icon: History },
+    { href: "/simulator", label: "Simulator", icon: Activity },
+  ];
+
+  const navLinks = isDriver ? driverLinks : isPartner ? partnerLinks : isAdmin ? adminLinks : operatorLinks;
 
   const roleBadgeColors: Record<string, string> = {
     ADMIN: "bg-purple-900/60 text-purple-300 border-purple-700",

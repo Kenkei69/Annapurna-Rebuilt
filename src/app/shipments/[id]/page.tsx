@@ -1,10 +1,10 @@
 import React from "react";
 import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/db";
-import { assertOrgAccess } from "@/lib/org";
+import { getAuthorizedActor, loadAuthorizedShipmentDetails } from "@/lib/auth/policy";
 import { AppShell } from "@/components/layout/AppShell";
 import { ShipmentDetailClient } from "@/components/shipments/ShipmentDetailClient";
+import { NotFoundError, ForbiddenError } from "@/lib/errors";
 
 export default async function ShipmentDetailPage({
   params,
@@ -14,57 +14,25 @@ export default async function ShipmentDetailPage({
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
+  const actor = await getAuthorizedActor();
+  if (!actor) redirect("/login");
+
   const { id } = await params;
 
-  const shipment = await prisma.shipment.findUnique({
-    where: { id },
-    include: {
-      organization: true,
-      assignedVehicle: true,
-      assignedDevice: true,
-      assignedDriver: true,
-      alerts: {
-        include: {
-          acknowledgedBy: true,
-          resolvedBy: true,
-        },
-        orderBy: { createdAt: "desc" },
-      },
-      rescueOpportunity: {
-        include: {
-          offers: {
-            include: { partnerOrg: true },
-          },
-          milestones: {
-            include: { actor: true },
-          },
-        },
-      },
-      telemetryReadings: {
-        orderBy: { recordedAt: "desc" },
-        take: 30,
-      },
-    },
-  });
-
-  if (!shipment) {
-    notFound();
-  }
-
-  // Tenant Boundary Check: Non-admins can only view their own organization's shipments
-  // (or assigned driver)
-  if (user.role !== "ADMIN" && user.role !== "PARTNER") {
-    try {
-      await assertOrgAccess(user.id, user.role, shipment.organizationId);
-    } catch {
-      // If driver is specifically assigned, allow view
-      if (user.role === "DRIVER" && shipment.assignedDriverId === user.id) {
-        // Driver authorized for assigned shipment
-      } else {
-        redirect("/dashboard");
-      }
+  let shipmentDetails: Awaited<ReturnType<typeof loadAuthorizedShipmentDetails>>;
+  try {
+    shipmentDetails = await loadAuthorizedShipmentDetails(actor, id);
+  } catch (err: unknown) {
+    if (err instanceof NotFoundError) {
+      notFound();
     }
+    if (err instanceof ForbiddenError) {
+      redirect("/dashboard");
+    }
+    throw err;
   }
+
+  const { shipment, accessLevel } = shipmentDetails;
 
   return (
     <AppShell
@@ -76,7 +44,11 @@ export default async function ShipmentDetailPage({
         organization: user.memberships[0]?.organization,
       }}
     >
-      <ShipmentDetailClient shipment={shipment} userRole={user.role} />
+      <ShipmentDetailClient
+        shipment={shipment}
+        userRole={user.role}
+        accessLevel={accessLevel}
+      />
     </AppShell>
   );
 }

@@ -13,9 +13,20 @@ export default async function DevicesPage() {
 
   const devices = await prisma.device.findMany({
     where: user.role === "ADMIN" ? {} : { organizationId: orgId },
-    include: {
+    select: {
+      id: true,
+      deviceIdentifier: true,
+      hardwareModel: true,
+      status: true,
+      isSimulated: true,
+      lastSeenAt: true,
+      createdAt: true,
+      updatedAt: true,
+      organizationId: true,
+      // apiKeyHash intentionally excluded — never serialized to client
       shipments: {
         where: { status: { in: ["DISPATCHED", "IN_TRANSIT", "ALERTED", "RESCUE_PENDING"] } },
+        select: { id: true, trackingNumber: true, title: true, status: true },
       },
     },
     orderBy: { createdAt: "desc" },

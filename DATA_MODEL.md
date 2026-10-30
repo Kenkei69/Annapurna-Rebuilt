@@ -51,6 +51,7 @@ Edge IoT sensing hardware.
 - `apiKeyHash`: SHA-256 hash of device secret
 - `hardwareModel`: String (e.g. `ANNAPURNA-EDGE-S3`)
 - `status`: Enum (`ACTIVE`, `SUSPENDED`, `DECOMMISSIONED`)
+- `isSimulated`: Boolean (Default: `false` — isolates physical edge hardware from simulated test devices)
 - `lastSeenAt`: DateTime nullable
 
 ### 4. `Shipment`
@@ -80,6 +81,7 @@ High-volume sensor time series.
 - `ruleCode`: String (`TEMP_HIGH_BREACH`, `SUSTAINED_BREACH`, `TEMP_LOW_BREACH`, `HUMIDITY_BREACH`)
 - `severity`: Enum (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`)
 - `status`: Enum (`ACTIVE`, `ACKNOWLEDGED`, `RESOLVED`, `DISMISSED`)
+- `escalatedFromId`: UUID nullable (Self-referential foreign key -> Alert; links sustained escalations to originating incident)
 - `triggerReadingJson`: Serialized snapshot of reading data that triggered rule
 - `acknowledgedById`, `acknowledgedAt`, `ackNotes`: Operator acknowledgment tracking
 - `resolvedById`, `resolvedAt`, `resolutionNotes`: Resolution tracking
@@ -88,7 +90,7 @@ High-volume sensor time series.
 Partner facility profile registered by rescue organizations.
 - `organizationId`: UUID (Primary Key / Unique)
 - `facilityName`: String nullable (Facility / depot name)
-- `facilityType`: Enum (`COLD_STORAGE`, `EMERGENCY_REEFER`, `PROCESSING_DEPOT`, `MOBILE_DISTRIBUTION`)
+- `facilityType`: Enum (`COLD_STORAGE`, `WHOLESALE_BUYER`, `EMERGENCY_REEFER`)
 - `address`: String nullable
 - `latitude` / `longitude`: Float nullable
 - `capacityAvailableKg`: Float nullable (Must be > 0 when onboarded)
@@ -124,6 +126,14 @@ Versioned database migrations enforce data-integrity invariants directly at the 
 3. `chk_partner_temp_limits`: `tempRangeMin IS NULL OR tempRangeMax IS NULL OR tempRangeMin < tempRangeMax`
 4. `chk_rescue_offer_amount_positive`: `offerAmount > 0` (Requires strictly positive pricing quote)
 5. `chk_rescue_offer_capacity_positive`: `capacityOfferedKg > 0` (Requires strictly positive capacity)
+
+---
+
+## Applied Migrations Inventory
+
+1. `20261028000000_init_annapurna_core`: Core modular schema definition with multi-tenancy, telemetry time series, alerts, and rescue marketplace.
+2. `20261028070000_add_db_invariant_constraints`: PostgreSQL CHECK constraints enforcing positive capacity, positive pricing, and ascending thermal limits.
+3. `20261028140000_device_simulation_mode_and_alert_escalation`: Adds `Device.isSimulated` to distinguish physical hardware from synthetic simulators, and `Alert.escalatedFromId` to link sustained thermal escalation chains.
 
 ---
 

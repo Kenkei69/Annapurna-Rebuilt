@@ -13,39 +13,78 @@ import {
   completeRescue,
 } from "../../src/lib/rescue";
 import { assertOrgAccess } from "../../src/lib/org";
-import { ShipmentStatus, AlertStatus, OfferStatus, RescueStatus, UserRole } from "@prisma/client";
+import { ShipmentStatus, AlertStatus, OfferStatus, RescueStatus, UserRole, OrgType } from "@prisma/client";
+import { authorizeShipmentAccess, resolveActor } from "../../src/lib/auth/policy";
 
 test("Integration Workflow: Complete End-to-End Operator -> Telemetry -> Alert -> Rescue Journey", async () => {
-  // 1. Fetch seeded organizations and users
-  const fleetOrg = await prisma.organization.findUnique({
-    where: { slug: "transcold-express" },
-  });
-  assert.ok(fleetOrg, "Seeded fleet organization must exist");
+  const ts = Date.now().toString().slice(-6);
 
-  const operator = await prisma.user.findUnique({
-    where: { email: "operator@transcold.com" },
-  });
-  assert.ok(operator, "Seeded operator user must exist");
+  // 1. Fetch or create isolated fixtures
+  const fleetOrg =
+    (await prisma.organization.findUnique({ where: { slug: "transcold-express" } })) ||
+    (await prisma.organization.create({
+      data: { name: `Fleet TransCold ${ts}`, slug: `transcold-${ts}`, type: OrgType.FLEET },
+    }));
 
-  const partnerOrg = await prisma.organization.findUnique({
-    where: { slug: "sahyadri-cold" },
-  });
-  assert.ok(partnerOrg, "Seeded partner organization must exist");
+  const operator =
+    (await prisma.user.findUnique({ where: { email: "operator@transcold.com" } })) ||
+    (await prisma.user.create({
+      data: {
+        email: `operator-${ts}@transcold.com`,
+        name: `Operator TransCold ${ts}`,
+        passwordHash: "$2a$10$abcdefghijklmnopqrstuvwxyz1234567890",
+        role: UserRole.OPERATOR,
+        memberships: { create: { organizationId: fleetOrg.id, orgRole: "OWNER" } },
+      },
+    }));
 
-  const partnerUser = await prisma.user.findUnique({
-    where: { email: "director@sahyadricold.com" },
-  });
-  assert.ok(partnerUser, "Seeded partner user must exist");
+  const partnerOrg =
+    (await prisma.organization.findUnique({ where: { slug: "sahyadri-cold" } })) ||
+    (await prisma.organization.create({
+      data: { name: `Sahyadri Cold ${ts}`, slug: `sahyadri-cold-${ts}`, type: OrgType.RESCUE_PARTNER },
+    }));
 
-  const competitorOrg = await prisma.organization.findUnique({
-    where: { slug: "coastal-reefer" },
+  const partnerUser =
+    (await prisma.user.findUnique({ where: { email: "director@sahyadricold.com" } })) ||
+    (await prisma.user.create({
+      data: {
+        email: `director-${ts}@sahyadricold.com`,
+        name: `Director Sahyadri ${ts}`,
+        passwordHash: "$2a$10$abcdefghijklmnopqrstuvwxyz1234567890",
+        role: UserRole.PARTNER,
+        memberships: { create: { organizationId: partnerOrg.id, orgRole: "OWNER" } },
+      },
+    }));
+
+  // Ensure partner profile exists and is onboarded
+  const existingProfile = await prisma.rescuePartnerProfile.findUnique({
+    where: { organizationId: partnerOrg.id },
   });
-  assert.ok(competitorOrg, "Seeded competitor organization must exist");
+  if (!existingProfile) {
+    await prisma.rescuePartnerProfile.create({
+      data: {
+        organizationId: partnerOrg.id,
+        facilityName: "Sahyadri Cold Hub",
+        capacityAvailableKg: 20000,
+        tempRangeMin: -25.0,
+        tempRangeMax: 10.0,
+        contactEmail: partnerUser.email,
+        isActive: true,
+        onboardingComplete: true,
+      },
+    });
+  }
+
+  const competitorOrg =
+    (await prisma.organization.findUnique({ where: { slug: "coastal-reefer" } })) ||
+    (await prisma.organization.create({
+      data: { name: `Coastal Reefer ${ts}`, slug: `coastal-reefer-${ts}`, type: OrgType.FLEET },
+    }));
 
   // 2. Step 1: Provision Vehicle and Device
   const vehicle = await createVehicle({
     organizationId: fleetOrg.id,
-    licensePlate: `TEST-REEFER-${Date.now().toString().slice(-4)}`,
+    licensePlate: `TEST-REEFER-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     makeModel: "Volvo FE Electric Reefer",
     tempCapabilityMin: -25.0,
     tempCapabilityMax: 10.0,
@@ -58,7 +97,8 @@ test("Integration Workflow: Complete End-to-End Operator -> Telemetry -> Alert -
   const { device, plainApiKey } = await provisionDevice({
     organizationId: fleetOrg.id,
     deviceIdentifier,
-    hardwareModel: "ANNAPURNA-EDGE-S3",
+    hardwareModel: "ANNAPURNA-SIMULATOR",
+    isSimulated: true,
     actorId: operator.id,
     actorEmail: operator.email,
   });
@@ -236,8 +276,8 @@ test("Integration Workflow: Complete End-to-End Operator -> Telemetry -> Alert -
   assert.ok(actions.includes("RESCUE_OFFER_ACCEPTED"));
   assert.ok(actions.includes("RESCUE_COMPLETED"));
 
-  // 13. Step 12: Tenant Isolation Verification
-  // The competitor organization must NOT have access to fleetOrg's data
+  // 13. Step 12: Tenant Isolation & Denied Path Verifications
+  // A. Competitor organization operator is strictly blocked
   await assert.rejects(
     async () => {
       await assertOrgAccess(operator.id, UserRole.OPERATOR, competitorOrg.id);
@@ -245,4 +285,39 @@ test("Integration Workflow: Complete End-to-End Operator -> Telemetry -> Alert -
     /ORG_ACCESS_DENIED/,
     "Operator from fleetOrg must be strictly blocked from competitor organization"
   );
+
+  // B. Unassigned driver in the same organization cannot access this shipment
+  const unassignedDriver = await prisma.user.create({
+    data: {
+      email: `driver-unassigned-${ts}@transcold.com`,
+      name: `Unassigned Driver ${ts}`,
+      passwordHash: "hash",
+      role: UserRole.DRIVER,
+      memberships: { create: { organizationId: fleetOrg.id, orgRole: "DRIVER" } },
+    },
+  });
+  const unassignedDriverActor = (await resolveActor(unassignedDriver.id))!;
+  const driverCheck = await authorizeShipmentAccess(unassignedDriverActor, shipment.id);
+  assert.equal(driverCheck.allowed, false, "Unassigned driver in same org must be denied access to shipment");
+
+  // C. Unrelated rescue partner (did not win the completed rescue) is blocked
+  const unrelatedPartnerOrg = await prisma.organization.create({
+    data: {
+      name: `Unrelated Partner ${ts}`,
+      slug: `unrelated-partner-${ts}`,
+      type: OrgType.RESCUE_PARTNER,
+    },
+  });
+  const unrelatedPartnerUser = await prisma.user.create({
+    data: {
+      email: `unrelated-${ts}@coldhub.com`,
+      name: `Unrelated Partner ${ts}`,
+      passwordHash: "hash",
+      role: UserRole.PARTNER,
+      memberships: { create: { organizationId: unrelatedPartnerOrg.id, orgRole: "OWNER" } },
+    },
+  });
+  const unrelatedActor = (await resolveActor(unrelatedPartnerUser.id))!;
+  const unrelatedCheck = await authorizeShipmentAccess(unrelatedActor, shipment.id);
+  assert.equal(unrelatedCheck.allowed, false, "Unrelated partner must be denied access to completed rescue shipment");
 });

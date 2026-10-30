@@ -144,7 +144,22 @@ export async function submitRescueOffer(params: {
   );
 
   return prisma.$transaction(async (tx) => {
-    // 1. Verify Partner Facility Onboarding
+    // 1. Verify Partner Facility Onboarding and Membership
+    const partnerMembership = await tx.membership.findUnique({
+      where: {
+        userId_organizationId: {
+          userId: params.submittedById,
+          organizationId: params.partnerOrgId,
+        },
+      },
+    });
+
+    if (!partnerMembership) {
+      throw new ForbiddenError(
+        "UNAUTHORIZED_PARTNER_MEMBERSHIP: Submitting user is not an active member of the designated partner organization."
+      );
+    }
+
     const partnerProfile = await tx.rescuePartnerProfile.findUnique({
       where: { organizationId: params.partnerOrgId },
     });
@@ -161,9 +176,16 @@ export async function submitRescueOffer(params: {
 
     // 2. Row-level lock on opportunity to coordinate race with concurrent acceptance
     const [opp] = await tx.$queryRaw<
-      Array<{ id: string; status: string; organizationId: string }>
+      Array<{
+        id: string;
+        status: string;
+        organizationId: string;
+        cargoWeightKg: number;
+        tempRequirementMin: number;
+        tempRequirementMax: number;
+      }>
     >`
-      SELECT "id", "status", "organizationId"
+      SELECT "id", "status", "organizationId", "cargoWeightKg", "tempRequirementMin", "tempRequirementMax"
       FROM "RescueOpportunity"
       WHERE "id" = ${params.opportunityId}
       FOR UPDATE
@@ -258,9 +280,12 @@ export async function acceptRescueOffer(params: {
         acceptedOfferId: string | null;
         organizationId: string;
         shipmentId: string;
+        cargoWeightKg: number;
+        tempRequirementMin: number;
+        tempRequirementMax: number;
       }>
     >`
-      SELECT "id", "status", "acceptedOfferId", "organizationId", "shipmentId"
+      SELECT "id", "status", "acceptedOfferId", "organizationId", "shipmentId", "cargoWeightKg", "tempRequirementMin", "tempRequirementMax"
       FROM "RescueOpportunity"
       WHERE "id" = ${params.opportunityId}
       FOR UPDATE
@@ -268,6 +293,32 @@ export async function acceptRescueOffer(params: {
 
     if (!oppRow) {
       throw new NotFoundError("RESCUE_OPPORTUNITY_NOT_FOUND");
+    }
+
+    // Authorization check: Verify actor has fleet owner/dispatcher authority or admin role
+    const callerUser = await tx.user.findUnique({
+      where: { id: params.actorId },
+      select: { role: true },
+    });
+    const isAdmin = callerUser?.role === "ADMIN";
+
+    const callerMembership = await tx.membership.findUnique({
+      where: {
+        userId_organizationId: {
+          userId: params.actorId,
+          organizationId: oppRow.organizationId,
+        },
+      },
+    });
+
+    const isFleetAuth =
+      callerMembership &&
+      (callerMembership.orgRole === "OWNER" || callerMembership.orgRole === "DISPATCHER");
+
+    if (!isAdmin && !isFleetAuth) {
+      throw new ForbiddenError(
+        "FORBIDDEN: Only fleet owners, dispatchers, or administrators can accept rescue offers."
+      );
     }
 
     // 2. Idempotency Check: if this exact offer is already accepted, return idempotently
@@ -319,9 +370,9 @@ export async function acceptRescueOffer(params: {
       );
     }
 
-    // Expiry Check at acceptance time
+    // Expiry Check at acceptance time: persist expired status cleanly without rollback
     if (offer.validUntil <= new Date()) {
-      await tx.rescueOffer.update({
+      await prisma.rescueOffer.update({
         where: { id: offer.id },
         data: { status: OfferStatus.EXPIRED },
       });
@@ -340,6 +391,27 @@ export async function acceptRescueOffer(params: {
       throw new ForbiddenError(
         "PARTNER_NOT_ONBOARDED: Offering partner facility has not completed verified onboarding."
       );
+    }
+
+    // Suitability Validation: Capacity & Temperature Envelopes
+    if (offer.capacityOfferedKg < oppRow.cargoWeightKg) {
+      throw new ValidationError(
+        `INSUFFICIENT_CAPACITY: Offered capacity (${offer.capacityOfferedKg} kg) cannot accommodate cargo weight (${oppRow.cargoWeightKg} kg).`
+      );
+    }
+
+    if (
+      partnerProfile.tempRangeMin !== null &&
+      partnerProfile.tempRangeMax !== null
+    ) {
+      if (
+        partnerProfile.tempRangeMin > oppRow.tempRequirementMin ||
+        partnerProfile.tempRangeMax < oppRow.tempRequirementMax
+      ) {
+        throw new ValidationError(
+          `INCOMPATIBLE_TEMPERATURE_CAPABILITY: Partner facility range [${partnerProfile.tempRangeMin}°C, ${partnerProfile.tempRangeMax}°C] cannot maintain required cargo range [${oppRow.tempRequirementMin}°C, ${oppRow.tempRequirementMax}°C].`
+        );
+      }
     }
 
     // 5. Atomic State Transitions
@@ -420,6 +492,25 @@ export async function recordRescueMilestone(params: {
   }
 
   return prisma.$transaction(async (tx) => {
+    // Acquire row-level lock on opportunity to prevent racing milestone/completion updates
+    const [oppRow] = await tx.$queryRaw<
+      Array<{
+        id: string;
+        status: string;
+        organizationId: string;
+        shipmentId: string;
+      }>
+    >`
+      SELECT "id", "status", "organizationId", "shipmentId"
+      FROM "RescueOpportunity"
+      WHERE "id" = ${params.opportunityId}
+      FOR UPDATE
+    `;
+
+    if (!oppRow) {
+      throw new NotFoundError("RESCUE_OPPORTUNITY_NOT_FOUND");
+    }
+
     const opp = await tx.rescueOpportunity.findUnique({
       where: { id: params.opportunityId },
       include: {
@@ -444,34 +535,31 @@ export async function recordRescueMilestone(params: {
       );
     }
 
-    // Authorization check: Actor must be fleet owner/dispatcher, assigned driver, or winning partner org
+    // Authorization check: Actor must be fleet owner/dispatcher, assigned driver, winning partner org, or admin
+    const actorUser = await tx.user.findUnique({
+      where: { id: params.actorId },
+      select: { role: true },
+    });
+    const isAdmin = actorUser?.role === "ADMIN";
+
     const userMemberships = await tx.membership.findMany({
       where: { userId: params.actorId },
-      select: { organizationId: true },
+      select: { organizationId: true, orgRole: true },
     });
-    const userOrgIds = new Set(userMemberships.map((m) => m.organizationId));
-    if (params.actorOrgId) {
-      userOrgIds.add(params.actorOrgId);
-    }
 
-    let isAdmin = params.actorRole === "ADMIN";
-    if (!isAdmin) {
-      const user = await tx.user.findUnique({
-        where: { id: params.actorId },
-        select: { role: true },
-      });
-      isAdmin = user?.role === "ADMIN";
-    }
+    const fleetMembership = userMemberships.find((m) => m.organizationId === opp.organizationId);
+    const isFleetAuth =
+      fleetMembership &&
+      (fleetMembership.orgRole === "OWNER" || fleetMembership.orgRole === "DISPATCHER");
 
     const winningOffer = opp.offers[0];
-    const isFleetOwner = userOrgIds.has(opp.organizationId);
     const isDriver = opp.shipment.assignedDriverId === params.actorId;
     const isWinningPartner =
-      Boolean(winningOffer && userOrgIds.has(winningOffer.partnerOrgId));
+      Boolean(winningOffer && userMemberships.some((m) => m.organizationId === winningOffer.partnerOrgId));
 
-    if (!isFleetOwner && !isDriver && !isWinningPartner && !isAdmin) {
+    if (!isFleetAuth && !isDriver && !isWinningPartner && !isAdmin) {
       throw new ForbiddenError(
-        "FORBIDDEN: Only authorized participants (fleet dispatcher, driver, or assigned rescue partner) can log milestones."
+        "FORBIDDEN: Only authorized participants (fleet owner, dispatcher, assigned driver, or winning rescue partner) can log milestones."
       );
     }
 
@@ -514,7 +602,7 @@ export async function completeRescue(params: {
   }
 
   return prisma.$transaction(async (tx) => {
-    // Exclusive lock
+    // 1. Exclusive lock on RescueOpportunity
     const [opp] = await tx.$queryRaw<
       Array<{
         id: string;
@@ -534,12 +622,58 @@ export async function completeRescue(params: {
       throw new NotFoundError("RESCUE_OPPORTUNITY_NOT_FOUND");
     }
 
-    // Idempotency: already completed
+    // 2. Lock associated Shipment in consistent order to prevent concurrent race transitions
+    await tx.$queryRaw`
+      SELECT "id" FROM "Shipment" WHERE "id" = ${opp.shipmentId} FOR UPDATE
+    `;
+
+    // 3. Idempotency: already completed
     if (opp.status === RescueStatus.COMPLETED) {
       return opp;
     }
 
-    // State machine check: must be in ACCEPTED or IN_PROGRESS
+    // 4. Authorization check: Actor must be fleet owner/dispatcher, assigned driver, winning partner, or admin
+    const actorUser = await tx.user.findUnique({
+      where: { id: params.actorId },
+      select: { role: true },
+    });
+    const isAdmin = actorUser?.role === "ADMIN";
+
+    const userMemberships = await tx.membership.findMany({
+      where: { userId: params.actorId },
+      select: { organizationId: true, orgRole: true },
+    });
+
+    const fleetMembership = userMemberships.find((m) => m.organizationId === opp.organizationId);
+    const isFleetAuth =
+      fleetMembership &&
+      (fleetMembership.orgRole === "OWNER" || fleetMembership.orgRole === "DISPATCHER");
+
+    const shipment = await tx.shipment.findUnique({
+      where: { id: opp.shipmentId },
+    });
+    if (!shipment) {
+      throw new NotFoundError("SHIPMENT_NOT_FOUND");
+    }
+
+    const isDriver = shipment.assignedDriverId === params.actorId;
+
+    let isWinningPartner = false;
+    if (opp.acceptedOfferId) {
+      const winningOffer = await tx.rescueOffer.findUnique({
+        where: { id: opp.acceptedOfferId },
+      });
+      isWinningPartner =
+        Boolean(winningOffer && userMemberships.some((m) => m.organizationId === winningOffer.partnerOrgId));
+    }
+
+    if (!isFleetAuth && !isDriver && !isWinningPartner && !isAdmin) {
+      throw new ForbiddenError(
+        "FORBIDDEN: Only authorized participants (fleet owner/dispatcher, assigned driver, winning partner, or admin) can complete rescue."
+      );
+    }
+
+    // 5. State machine check: must be in ACCEPTED or IN_PROGRESS
     if (
       opp.status !== RescueStatus.ACCEPTED &&
       opp.status !== RescueStatus.IN_PROGRESS
@@ -555,25 +689,23 @@ export async function completeRescue(params: {
       );
     }
 
+    if (!canTransitionShipment(shipment.status, ShipmentStatus.RESCUED)) {
+      throw new ConflictError(
+        `INVALID_SHIPMENT_TRANSITION: Cannot transition shipment from status '${shipment.status}' to RESCUED.`
+      );
+    }
+
     // Transition opportunity to COMPLETED
     const completedOpp = await tx.rescueOpportunity.update({
       where: { id: params.opportunityId },
       data: { status: RescueStatus.COMPLETED },
     });
 
-    // Transition shipment to RESCUED
-    const shipment = await tx.shipment.findUnique({
+    // Atomically transition shipment to RESCUED
+    await tx.shipment.update({
       where: { id: opp.shipmentId },
+      data: { status: ShipmentStatus.RESCUED },
     });
-    if (
-      shipment &&
-      canTransitionShipment(shipment.status, ShipmentStatus.RESCUED)
-    ) {
-      await tx.shipment.update({
-        where: { id: opp.shipmentId },
-        data: { status: ShipmentStatus.RESCUED },
-      });
-    }
 
     // Add final milestone
     await tx.rescueMilestone.create({

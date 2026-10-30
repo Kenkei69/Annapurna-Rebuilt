@@ -21,6 +21,9 @@ DATABASE_URL="postgresql://postgres:password@localhost:5432/annapurna_db?sslmode
 # Cryptographic Session Token Secret (Min 32 characters)
 SESSION_SECRET="annapurna_development_secret_min_32_characters_long!"
 
+# Optional: Lab Simulator Toggle
+ENABLE_SIMULATOR="true"
+
 # Optional: Google Gemini API Key for AI Incident Decision Support
 # If omitted, system seamlessly falls back to the deterministic heuristic engine
 GEMINI_API_KEY=""

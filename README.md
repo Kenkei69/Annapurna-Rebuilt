@@ -84,7 +84,30 @@ Open [http://localhost:3000](http://localhost:3000) to access the landing page o
 ```bash
 npm test
 ```
-All 31 unit and integration tests across 6 suites will execute and verify tenant isolation, device auth, deduplication, alert generation, partner onboarding gates, and single-winner rescue transactions against PostgreSQL.
+All 42 unit and integration tests across 9 suites will execute and verify tenant isolation, device auth, out-of-order telemetry safety, simulator isolation, alert escalation chains, partner onboarding gates, single-winner rescue transactions, health/readiness endpoints, and gap detection against PostgreSQL.
+
+---
+
+## Release Candidate 2.0 Feature Verification Matrix
+
+| Feature | Classification | Implementation Status & Evidence |
+| :--- | :--- | :--- |
+| **Multi-Tenant Fleet Isolation** | **Implemented & Verified** | Shared policy in `policy.ts`, direct HTTP route & server-component tests in `shipment_authorization.test.ts`. Zero passwordHash / apiKeyHash leaks. |
+| **Driver Assignment Access** | **Implemented & Verified** | Drivers strictly restricted to assigned shipments; verified in `shipment_authorization.test.ts` and `DriverWorkspaceClient.tsx`. |
+| **Partner Rescue Bidding** | **Implemented & Verified** | Competitor bid redaction, self-reported onboarding qualification, verified in `partner_onboarding.test.ts`. |
+| **Single-Winner Rescue Enactment** | **Implemented & Verified** | Atomic `SELECT FOR UPDATE` transaction in `src/lib/rescue/index.ts`, verified under concurrent races in `rescue_concurrency.test.ts`. |
+| **Monotonic Telemetry & Tie-Breaker** | **Implemented & Verified** | Row-locked ingestion in `src/lib/telemetry/index.ts`. Out-of-order readings stored without reverting current status; verified in `telemetry_ingestion_and_simulation.test.ts`. |
+| **Deterministic Alert Escalation** | **Implemented & Verified** | Sustained breach escalation with acknowledgment note retention and 0.5°C hysteresis recovery; verified in `alerts.test.ts`. |
+| **Missing Telemetry Gap Detection** | **Implemented & Verified** | Scheduled endpoint `POST /api/telemetry/evaluate-gaps` and `detectMissingTelemetry()` in `src/lib/alerts/index.ts`; verified in `core_workflows_and_endpoints.test.ts`. |
+| **IoT Device Lifecycle & Revocation** | **Implemented & Verified** | `PATCH /api/devices/[id]` status transitions (ACTIVE, SUSPENDED, DECOMMISSIONED) and suspended device rejection; verified in `core_workflows_and_endpoints.test.ts`. |
+| **Liveness & Readiness Endpoints** | **Implemented & Verified** | `GET /api/health` (process liveness) and `GET /api/ready` (database dependency check); verified in `core_workflows_and_endpoints.test.ts`. |
+| **Security Proxy & Correlation IDs** | **Implemented & Verified** | `src/proxy.ts` attaches `x-request-id` and defense-in-depth headers (`X-Content-Type-Options`, `X-Frame-Options`, `CSP`). |
+| **Interactive Fleet & Device UI** | **Implemented & Verified** | Search, status filtering, pagination, and toast notifications across `ShipmentListClient`, `DevicesClient`, `FleetClient`, `AlertsClient`, and `AuditClient`. |
+| **Organization Management UI** | **Implemented & Verified** | Dedicated `/org` settings view with member role delegation and profile updates; verified in `core_workflows_and_endpoints.test.ts`. |
+| **Synthetic Scenario Simulator** | **Demonstration-Only** | Dedicated demo harness (`/simulator`), disabled in production unless `ENABLE_SIMULATOR=true`, strictly barred from operational devices. |
+| **AI Incident Decision Support** | **Dependent on Configuration** | Server-side Gemini API with strict Zod validation, 5s timeout, and deterministic expert system fallback when unconfigured. |
+| **Email / SMS Carrier Notifications** | **Dependent on Configuration** | In-app alerts and audit ledger operational; external SMTP/Twilio integration hooks documented for production provisioning. |
+| **Multi-Leg Partial Cargo Split** | **Not Implemented** | Full-cargo rescue transfer enforced atomically. Partial cargo splitting deferred to post-2.0 milestone. |
 
 ---
 

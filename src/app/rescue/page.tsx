@@ -1,41 +1,106 @@
 import React from "react";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
+import { getAuthorizedActor, getRescueOpportunitiesWhereClause } from "@/lib/auth/policy";
 import { prisma } from "@/lib/db";
 import { AppShell } from "@/components/layout/AppShell";
 import { RescueHubClient } from "@/components/rescue/RescueHubClient";
+import { UserRole } from "@prisma/client";
 
 export default async function RescuePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const orgId = user.memberships[0]?.organizationId;
-  const isPartner = user.memberships[0]?.organization?.type === "RESCUE_PARTNER";
+  const actor = await getAuthorizedActor();
+  if (!actor) redirect("/login");
 
+  const isPartner = actor.role === UserRole.PARTNER;
   const partnerProfile =
-    isPartner && orgId
+    isPartner && actor.primaryOrgId
       ? await prisma.rescuePartnerProfile.findUnique({
-          where: { organizationId: orgId },
+          where: { organizationId: actor.primaryOrgId },
         })
       : null;
 
-  // If partner, fetch all open/offered/accepted opportunities
-  // If fleet operator, fetch their organization's opportunities
-  // If admin, fetch all
+  const whereClause = getRescueOpportunitiesWhereClause(actor);
+
+  // Offers filtering: Partners only see their own offers (no competitor leak)
+  const offersWhere = isPartner && actor.primaryOrgId
+    ? { partnerOrgId: actor.primaryOrgId }
+    : {};
+
   const opportunities = await prisma.rescueOpportunity.findMany({
-    where:
-      user.role === "ADMIN" || isPartner
-        ? {}
-        : { organizationId: orgId },
-    include: {
-      organization: true,
-      shipment: true,
+    where: whereClause,
+    select: {
+      id: true,
+      organizationId: true,
+      shipmentId: true,
+      title: true,
+      cargoDescription: true,
+      cargoWeightKg: true,
+      tempRequirementMin: true,
+      tempRequirementMax: true,
+      urgency: true,
+      targetLat: true,
+      targetLng: true,
+      ...(!isPartner ? { maxBudget: true } : {}),
+      status: true,
+      acceptedOfferId: true,
+      createdAt: true,
+      updatedAt: true,
+      organization: {
+        select: { id: true, name: true, slug: true, type: true },
+      },
+      shipment: {
+        select: {
+          id: true,
+          trackingNumber: true,
+          title: true,
+          cargoType: true,
+          tempMin: true,
+          tempMax: true,
+          status: true,
+          originName: true,
+          destName: true,
+          latestTemperature: true,
+          latestRecordedAt: true,
+        },
+      },
       offers: {
-        include: { partnerOrg: true },
+        where: offersWhere,
+        select: {
+          id: true,
+          opportunityId: true,
+          partnerOrgId: true,
+          offerAmount: true,
+          capacityOfferedKg: true,
+          storageType: true,
+          estimatedEtaMinutes: true,
+          status: true,
+          notes: true,
+          createdAt: true,
+          partnerOrg: {
+            select: { id: true, name: true, slug: true },
+          },
+          submittedBy: {
+            select: { id: true, name: true, email: true },
+          },
+        },
         orderBy: { createdAt: "desc" },
       },
       milestones: {
-        include: { actor: true },
+        select: {
+          id: true,
+          opportunityId: true,
+          actorId: true,
+          milestoneType: true,
+          notes: true,
+          recordedAt: true,
+          // Safe actor projection: NO passwordHash!
+          actor: {
+            select: { id: true, name: true, email: true },
+          },
+        },
         orderBy: { recordedAt: "asc" },
       },
     },
@@ -55,7 +120,7 @@ export default async function RescuePage() {
       <RescueHubClient
         opportunities={opportunities}
         userRole={user.role}
-        userOrgId={orgId || ""}
+        userOrgId={actor.primaryOrgId || ""}
         isPartner={isPartner}
         partnerProfile={partnerProfile}
       />

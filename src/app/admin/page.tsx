@@ -15,13 +15,27 @@ export default async function AdminPage() {
   }
 
   const orgs = await prisma.organization.findMany({
-    include: {
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      type: true,
       memberships: {
-        include: { user: true },
+        select: {
+          id: true,
+          orgRole: true,
+          user: {
+            select: { id: true, name: true, email: true, role: true },
+          },
+        },
       },
-      vehicles: true,
-      devices: true,
-      shipments: true,
+      _count: {
+        select: {
+          vehicles: true,
+          devices: true,
+          shipments: true,
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -107,15 +121,15 @@ export default async function AdminPage() {
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 uppercase font-semibold">Vehicles</span>
-                    <p className="font-bold text-slate-800 text-sm mt-0.5">{org.vehicles.length}</p>
+                    <p className="font-bold text-slate-800 text-sm mt-0.5">{org._count.vehicles}</p>
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 uppercase font-semibold">IoT Devices</span>
-                    <p className="font-bold text-slate-800 text-sm mt-0.5">{org.devices.length}</p>
+                    <p className="font-bold text-slate-800 text-sm mt-0.5">{org._count.devices}</p>
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 uppercase font-semibold">Shipments</span>
-                    <p className="font-bold text-slate-800 text-sm mt-0.5">{org.shipments.length}</p>
+                    <p className="font-bold text-slate-800 text-sm mt-0.5">{org._count.shipments}</p>
                   </div>
                 </div>
 

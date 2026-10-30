@@ -13,9 +13,20 @@ export default async function FleetPage() {
 
   const vehicles = await prisma.vehicle.findMany({
     where: user.role === "ADMIN" ? {} : { organizationId: orgId },
-    include: {
+    select: {
+      id: true,
+      organizationId: true,
+      licensePlate: true,
+      makeModel: true,
+      reeferType: true,
+      tempCapabilityMin: true,
+      tempCapabilityMax: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
       shipments: {
         where: { status: { in: ["DISPATCHED", "IN_TRANSIT", "ALERTED", "RESCUE_PENDING"] } },
+        select: { id: true, trackingNumber: true, title: true, status: true },
       },
     },
     orderBy: { createdAt: "desc" },

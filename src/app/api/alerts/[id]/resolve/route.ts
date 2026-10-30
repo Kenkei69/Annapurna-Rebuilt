@@ -7,6 +7,7 @@ import { assertOrgAccess } from "@/lib/org";
 
 const ResolveSchema = z.object({
   resolutionNotes: z.string().min(5, "Resolution notes must be at least 5 characters"),
+  overrideReason: z.string().optional(),
 });
 
 export async function POST(
@@ -17,7 +18,7 @@ export async function POST(
     const user = await requireAuth();
     const { id } = await params;
     const body = await req.json();
-    const { resolutionNotes } = ResolveSchema.parse(body);
+    const { resolutionNotes, overrideReason } = ResolveSchema.parse(body);
 
     const alert = await prisma.alert.findUnique({ where: { id } });
     if (!alert) {
@@ -31,6 +32,7 @@ export async function POST(
       actorId: user.id,
       actorEmail: user.email,
       resolutionNotes,
+      overrideReason,
     });
 
     return NextResponse.json({ success: true, alert: updated });

@@ -19,11 +19,14 @@ To execute all unit and integration tests:
 npm test
 ```
 
-### Verified Test Suites (31 / 31 Passing):
+### Verified Test Suites (36 / 36 Passing):
 ```
 ✔ Partner Onboarding - Real onboarding lifecycle and bid qualification invariant
 ✔ Cargo Rescue Concurrency - True PostgreSQL concurrent acceptance race condition
 ✔ Cargo Rescue Concurrency - Idempotent re-acceptance of the same winning offer
+✔ Priority 4: Rescue Lifecycle, Suitability Validation, Expiry Persistence & Atomic Completion
+✔ Shipment Authorization & Data Exposure - Comprehensive Isolation Policy
+✔ Priority 2 & 3: Telemetry Ingestion, Out-of-Order Safety, Simulator Isolation & Alert Lifecycle
 ✔ Integration Workflow: Complete End-to-End Operator -> Telemetry -> Alert -> Rescue Journey
 ✔ Shipment State Machine - Enforces valid transitions
 ✔ AI Heuristic Engine - Correctly computes warming gradient and action plan
@@ -41,6 +44,7 @@ npm test
 ✔ Database Safety - Refuses destructive reset without explicit flag
 ✔ Database Safety - Refuses destructive reset if database URL is missing
 ✔ Database Safety - Refuses reset targeting a database with production indicators
+✔ Database Safety - Credentials with test keywords do not bypass production database protection
 ✔ Database Safety - Allows reset only for explicitly designated local/test database
 ✔ Database Configuration - getDatabaseUrl fails closed when DATABASE_URL is unset
 ✔ Admin Provisioning - Password policy requires minimum 12 chars with complexity
@@ -52,11 +56,24 @@ npm test
 ✔ Telemetry Module - Device API key hashing is deterministic SHA-256
 ✔ Telemetry Edge Cases - Future timestamps (> 10m drift) are rejected
 ✔ Telemetry Edge Cases - Sequence deduplication prevents duplicate row creation
+✔ Telemetry Isolation - Ingesting simulated telemetry into operational device is rejected
 
-ℹ tests 31
-ℹ pass 31
+ℹ tests 36
+ℹ pass 36
 ℹ fail 0
 ```
+
+---
+
+## Continuous Integration Pipeline (`.github/workflows/ci.yml`)
+
+The repository includes a complete GitHub Actions CI pipeline configuration in `.github/workflows/ci.yml` running on `ubuntu-latest` with a dedicated PostgreSQL 16 service container:
+1. **Linting & Code Quality:** `npm run lint` (ESLint Next.js core-web-vitals)
+2. **Type Checking:** `npx tsc --noEmit`
+3. **Database Migrations:** `npx prisma migrate deploy`
+4. **Database Seeding & Invariant Verification:** `npm run db:init-essential`
+5. **Automated Test Suite:** `npm test` (all 36 unit and integration test assertions)
+6. **Production Build:** `npm run build` (Next.js Turbopack application bundle)
 
 ---
 
@@ -72,13 +89,13 @@ The complete operational lifecycle was verified in `tests/integration/workflow.t
 8. **Partner Bidding:** Competing partners submit offers (Offer 1: ₹18,000; Offer 2: ₹22,000).
 9. **Atomic Acceptance:** Operator accepts Offer 1. PostgreSQL transaction marks Offer 1 `ACCEPTED`, Offer 2 `REJECTED`, and binds `acceptedOfferId`.
 10. **Milestones & Closure:** Partner records dispatch and arrival milestones. Operator records final verification notes. Shipment transitions to `RESCUED`.
-11. **Immutable Audit Verification:** Audit trail records all 5 critical events with actor email, timestamp, and metadata.
-12. **Tenant Boundary Assertion:** Competitor organization is denied access (`ORG_ACCESS_DENIED`).
+11. **Append-Only Audit Verification:** Audit trail records all critical events with actor email, timestamp, and metadata.
+12. **Tenant Boundary Assertion:** Competitor organization is denied access (`ORG_ACCESS_DENIED`), unassigned driver is denied access, and unrelated partner is denied access.
 
 ---
 
 ## Rendered Page Screenshots
-Visual verification was captured across Desktop (1440px) and Mobile (375px) viewports:
+Visual verification was captured across Desktop (1440px) and Mobile (375px) viewports using automated Headless Chromium via Chrome DevTools Protocol (CDP). Note: Rendered screenshots illustrate visual UI presentation and responsive design; behavioral correctness and transactional integrity are established by the automated test suite executing against PostgreSQL:
 - `landing-desktop.png` & `landing-mobile.png`: Public product presentation and demo credentials
 - `login-desktop.png`: Accessible sign-in with one-click demo personas
 - `dashboard-desktop.png` & `dashboard-mobile.png`: Fleet control with live thermal breach banners

@@ -24,13 +24,13 @@ test("Telemetry Edge Cases - Sequence deduplication prevents duplicate row creat
   const seq = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 100000);
   const time = new Date().toISOString();
 
-  // First ingestion
+  // First ingestion on operational device
   const res1 = await ingestTelemetryReading({
     deviceId: "DEVICE-APN-001",
     sequence: seq,
     recordedAt: time,
     temperature: 3.8,
-    isSimulated: true,
+    isSimulated: false,
   });
   assert.equal(res1.status, "accepted");
 
@@ -40,8 +40,27 @@ test("Telemetry Edge Cases - Sequence deduplication prevents duplicate row creat
     sequence: seq,
     recordedAt: time,
     temperature: 3.8,
-    isSimulated: true,
+    isSimulated: false,
   });
   assert.equal(res2.status, "duplicate_ignored");
   assert.equal(res2.deduplicated, true);
+});
+
+test("Telemetry Isolation - Ingesting simulated telemetry into operational device is rejected", async () => {
+  const seq = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 100000);
+  const time = new Date().toISOString();
+
+  await assert.rejects(
+    async () => {
+      await ingestTelemetryReading({
+        deviceId: "DEVICE-APN-001", // Operational hardware
+        sequence: seq,
+        recordedAt: time,
+        temperature: 4.0,
+        isSimulated: true, // Marked simulated
+      });
+    },
+    /SIMULATION_NOT_PERMITTED/,
+    "Operational hardware must reject simulated telemetry packets"
+  );
 });

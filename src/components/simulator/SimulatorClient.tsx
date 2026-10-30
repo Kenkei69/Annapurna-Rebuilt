@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import { ToastBanner, ToastMessage } from "@/components/ui/ToastBanner";
 import {
   PlayCircle,
   Thermometer,
@@ -19,6 +20,7 @@ interface SimulatorClientProps {
 }
 
 export function SimulatorClient({ devices }: SimulatorClientProps) {
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [selectedDevice, setSelectedDevice] = useState(
     devices[0]?.deviceIdentifier || "DEVICE-APN-001"
   );
@@ -86,8 +88,12 @@ export function SimulatorClient({ devices }: SimulatorClientProps) {
       }
 
       setLastResult(data.result);
+      setToast({
+        type: "success",
+        message: `Simulation scenario '${scenarioId}' completed successfully. ${data.result?.readingsInjected ?? 0} reading(s) injected.`,
+      });
     } catch (err: any) {
-      alert(`Simulation failed: ${err.message}`);
+      setToast({ type: "error", message: `Simulation failed: ${err.message}` });
     } finally {
       setLoadingScenario(null);
     }
@@ -98,6 +104,7 @@ export function SimulatorClient({ devices }: SimulatorClientProps) {
 
   return (
     <div className="space-y-6">
+      <ToastBanner toast={toast} onDismiss={() => setToast(null)} />
       {/* Simulation Warning & Provenance Banner */}
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
         <div className="p-2 bg-amber-100 text-amber-800 rounded-lg shrink-0">

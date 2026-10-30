@@ -23,6 +23,8 @@ Configure the following environment variables in your Vercel Project Settings:
 | `DATABASE_URL` | Authoritative PostgreSQL connection string | **Yes** | `postgres://user:pass@host/db?sslmode=require` |
 | `SESSION_SECRET` | 32+ character HMAC secret for session cookies | **Yes** | `f6a9e10...` (Use `openssl rand -hex 32`) |
 | `NODE_ENV` | Runtime environment | **Yes** | `production` |
+| `ENABLE_SIMULATOR` | Lab simulator endpoint toggle (`true` / `false`) | No (Default: `false` in production) | `false` |
+| `CRON_SECRET` | Bearer token for scheduled telemetry gap evaluation | Optional | `cron_sec_...` |
 | `GEMINI_API_KEY` | Google Gemini API key for advisory assistance | Optional | `AIzaSy...` (Falls back to expert system if omitted) |
 
 ---
@@ -58,7 +60,7 @@ Provision the initial production administrative user with strong credential poli
 ADMIN_EMAIL="admin@yourdomain.com" ADMIN_PASSWORD="YourStrongPassword123!" npm run admin:provision
 ```
 
-> **Safety Notice:** Destructive reset scripts (`npm run db:reset:demo`) and demo fixture seeds (`npm run db:seed`) are protected by `assertSafeForDestructiveReset` and will refuse to execute in production or against non-local databases. Never run demo reset in production.
+> **Safety Notice:** Destructive reset scripts (`npm run db:reset:demo`) are protected by structural `DATABASE_URL` safety verification (`assertSafeForDestructiveReset`). The guard structurally parses hostnames and database names, immediately refusing execution if targeting cloud providers (AWS RDS, Supabase, Neon) or databases not in the explicit disposable whitelist (`annapurna_dev`, `annapurna_test`). Never attempt demo reset in production.
 
 ---
 
@@ -70,3 +72,13 @@ If an issue is detected post-deployment:
 2. **Database Rollback:**
    - Schema modifications adhere to non-breaking expansion: columns added as optional (`?`) or with defaults before making required in subsequent releases.
    - Point-in-time recovery (PITR) is natively available on Neon/Supabase to rewind transactional state if needed.
+
+---
+
+## 5. Observability & Health Monitoring
+
+- **Liveness Probe:** `GET /api/health` returns HTTP 200 `{ status: "ok", service: "annapurna-rebuilt" }`. Use for container orchestrator restart policies.
+- **Readiness Probe:** `GET /api/ready` performs an active database query (`SELECT 1`), returning 200 `{ status: "ready" }` or 503 `{ status: "degraded" }` with latency metrics. Use for ingress traffic routing.
+- **Scheduled Telemetry Evaluation:** In-transit shipments missing heartbeat packets for > 15 minutes are converted to `ALERTED` by calling `POST /api/telemetry/evaluate-gaps` with `Authorization: Bearer <CRON_SECRET>` via Vercel Cron, AWS EventBridge, or cron trigger.
+- **Request Correlation:** The edge proxy (`src/proxy.ts`) stamps incoming requests with an `x-request-id` header propagated to responses and audit trails.
+

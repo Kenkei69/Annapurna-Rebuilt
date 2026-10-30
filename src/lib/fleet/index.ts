@@ -15,11 +15,16 @@ export async function provisionDevice(params: {
   organizationId: string;
   deviceIdentifier: string;
   hardwareModel?: string;
+  isSimulated?: boolean;
   actorId?: string;
   actorEmail?: string;
 }) {
   const plainApiKey = generateDeviceApiKey();
   const apiKeyHash = hashDeviceApiKey(plainApiKey);
+
+  const isSim =
+    params.isSimulated ??
+    (params.hardwareModel?.toUpperCase().includes("SIMULATOR") ?? false);
 
   const device = await prisma.$transaction(async (tx) => {
     const created = await tx.device.create({
@@ -27,6 +32,7 @@ export async function provisionDevice(params: {
         organizationId: params.organizationId,
         deviceIdentifier: params.deviceIdentifier,
         hardwareModel: params.hardwareModel || "ANNAPURNA-EDGE-S3",
+        isSimulated: isSim,
         apiKeyHash,
         status: DeviceStatus.ACTIVE,
       },

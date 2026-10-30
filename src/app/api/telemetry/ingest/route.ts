@@ -30,10 +30,11 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
-    // Ensure payload deviceId matches authenticated header
+    // Ensure payload deviceId matches authenticated header and enforce trusted source labeling
     const parsed = TelemetryPayloadSchema.parse({
       ...body,
       deviceId: device.deviceIdentifier,
+      isSimulated: device.isSimulated,
     });
 
     const result = await ingestTelemetryReading(parsed);
@@ -50,7 +51,11 @@ export async function POST(req: Request) {
       );
     }
     const message = (err as Error).message;
-    if (message.includes("FUTURE_TIMESTAMP_REJECTED")) {
+    if (
+      message.includes("FUTURE_TIMESTAMP_REJECTED") ||
+      message.includes("SIMULATION_NOT_PERMITTED") ||
+      message.includes("AMBIGUOUS_DEVICE_ASSIGNMENT")
+    ) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
     console.error("Telemetry ingestion error:", err);

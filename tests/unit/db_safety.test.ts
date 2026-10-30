@@ -64,6 +64,20 @@ test("Database Safety - Refuses reset targeting a database with production indic
   }
 });
 
+test("Database Safety - Credentials with test keywords do not bypass production database protection", () => {
+  // Password or username containing "test" or "dev" must not fool the safety check
+  assert.throws(
+    () => {
+      assertSafeForDestructiveReset({
+        environment: "development",
+        allowDestructiveResetFlag: true,
+        databaseUrl: "postgresql://dev_user:secret_test_password@prod.internal:5432/core_business_db",
+      });
+    },
+    /FATAL_DESTRUCTIVE_GUARD: Target database URL contains production indicators on host 'prod.internal'|FATAL_DESTRUCTIVE_GUARD: Target database name 'core_business_db' is not in the explicit disposable database whitelist/
+  );
+});
+
 test("Database Safety - Allows reset only for explicitly designated local/test database", () => {
   assert.doesNotThrow(() => {
     assertSafeForDestructiveReset({

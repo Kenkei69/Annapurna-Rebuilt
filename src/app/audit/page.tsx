@@ -13,6 +13,18 @@ export default async function AuditPage() {
 
   const events = await prisma.auditEvent.findMany({
     where: user.role === "ADMIN" ? {} : { organizationId: orgId },
+    select: {
+      id: true,
+      organizationId: true,
+      actorId: true,
+      actorEmail: true,
+      action: true,
+      entityType: true,
+      entityId: true,
+      detailsJson: true,
+      ipAddress: true,
+      createdAt: true,
+    },
     orderBy: { createdAt: "desc" },
     take: 100,
   });
@@ -27,7 +39,12 @@ export default async function AuditPage() {
         organization: user.memberships[0]?.organization,
       }}
     >
-      <AuditClient events={events} />
+      <AuditClient
+        events={events.map((ev) => ({
+          ...ev,
+          createdAt: ev.createdAt.toISOString(),
+        }))}
+      />
     </AppShell>
   );
 }

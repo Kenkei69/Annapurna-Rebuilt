@@ -3,6 +3,16 @@
  * Enforces production protection rules to prevent data loss or unauthorized resets.
  */
 
+const DISPOSABLE_DATABASE_NAMES = new Set([
+  "annapurna_dev",
+  "annapurna_test",
+  "annapurna_db",
+  "annapurna_local_dev",
+  "annapurna_test_db",
+  "disposable_test",
+  "test_db",
+]);
+
 export function assertSafeForDestructiveReset(params: {
   databaseUrl?: string;
   environment?: string;
@@ -38,24 +48,53 @@ export function assertSafeForDestructiveReset(params: {
     );
   }
 
-  // 4. Production database host / name indicator protection
-  const lowerUrl = dbUrl.toLowerCase();
-  const productionIndicators = [
-    "prod.",
-    "-prod",
-    "_prod",
-    "production",
+  // 4. Structural URL parsing: inspect database name, host, and port independently
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(dbUrl);
+  } catch (err: unknown) {
+    throw new Error(
+      `FATAL_DESTRUCTIVE_GUARD: Invalid DATABASE_URL structure: ${(err as Error).message}`
+    );
+  }
+
+  // Extract database name from pathname (e.g. "/annapurna_test" -> "annapurna_test")
+  // Never inspect credentials, usernames, or query parameters as evidence of safety
+  const databaseName = parsedUrl.pathname.replace(/^\/+/, "").split("?")[0].toLowerCase();
+  const hostname = parsedUrl.hostname.toLowerCase();
+
+  // Hostname production checks (cloud providers / managed DBs)
+  const productionHostSuffixes = [
     "rds.amazonaws.com",
     "supabase.co",
     "neon.tech",
+    "cockroachlabs.cloud",
+    "aivencloud.com",
   ];
 
-  const hasProdIndicator = productionIndicators.some((ind) => lowerUrl.includes(ind));
-  const isExplicitTestDb = lowerUrl.includes("_test") || lowerUrl.includes("test_");
+  const isProductionHost =
+    productionHostSuffixes.some((suffix) => hostname.endsWith(suffix) || hostname.includes(suffix)) ||
+    hostname.startsWith("prod.") ||
+    hostname.includes("-prod") ||
+    hostname.includes("_prod") ||
+    hostname === "production";
 
-  if (hasProdIndicator && !isExplicitTestDb) {
+  if (isProductionHost) {
     throw new Error(
-      "FATAL_DESTRUCTIVE_GUARD: Target database URL contains production indicators and is not an isolated test database. Refusing destructive reset."
+      `FATAL_DESTRUCTIVE_GUARD: Target database URL contains production indicators on host '${hostname}'. Refusing destructive reset.`
+    );
+  }
+
+  // Strict database name whitelist
+  const isDisposable =
+    DISPOSABLE_DATABASE_NAMES.has(databaseName) ||
+    databaseName.endsWith("_test") ||
+    databaseName.endsWith("_dev") ||
+    databaseName.startsWith("test_");
+
+  if (!isDisposable) {
+    throw new Error(
+      `FATAL_DESTRUCTIVE_GUARD: Target database name '${databaseName}' is not in the explicit disposable database whitelist. Refusing destructive reset.`
     );
   }
 }
