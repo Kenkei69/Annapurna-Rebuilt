@@ -21,7 +21,7 @@ flowchart TD
         AlertEngine["Deterministic Alert State Machine"]
         RescueEngine["ACID Rescue Marketplace"]
         AIEngine["AI Decision Support (Optional Advisory)"]
-        AuditLedger["Immutable Audit Ledger"]
+        AuditLedger["Append-Only Audit Ledger"]
     end
 
     subgraph Storage["Authoritative Persistence"]
@@ -141,6 +141,6 @@ stateDiagram-v2
 
 ### 7. AI Assistance (Human-in-the-Loop) (`src/lib/ai`)
 - AI is strictly advisory decision support, never the system of record.
-- **Safe Fallback:** If `GEMINI_API_KEY` is absent or network requests time out (> 5000ms), a deterministic heuristic expert system calculates thermal gradients, warming velocity, and estimated minutes to critical spoilage.
+- **Safe Fallback:** If `GEMINI_API_KEY` is absent or network requests time out (> 5000ms), a deterministic heuristic expert system calculates thermal gradients, warming velocity, and estimated minutes to threshold limit (operational heuristic, not a scientific spoilage determination).
 - **Validation:** Model responses are validated via Zod schema (`AIAssistanceResponseSchema`).
 - **Human Approval:** Draft messages to drivers are clearly labeled with an explicit disclaimer: *"Advisory only. Requires human verification before dispatch."*

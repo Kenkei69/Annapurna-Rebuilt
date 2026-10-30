@@ -15,7 +15,7 @@
     "db:provision-admin": "tsx scripts/provision-admin.ts",
     "db:seed": "tsx prisma/seed.ts",
     "db:reset-demo": "tsx scripts/reset-demo.ts",
-    "test": "DATABASE_URL=\"postgresql://postgres:password@helium/annapurna_db?sslmode=disable\" tsx --test \"tests/unit/*.test.ts\" \"tests/integration/*.test.ts\""
+    "test": "tsx --test \"tests/unit/*.test.ts\" \"tests/integration/*.test.ts\""
   },
   "dependencies": {
     "@prisma/client": "^6.4.0",

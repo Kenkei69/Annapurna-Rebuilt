@@ -3,7 +3,8 @@ import fs from "fs";
 import path from "path";
 
 const SCREENSHOTS_DIR = "/home/runner/workspace/Annapurna-Rebuilt/docs/screenshots";
-const ARTIFACT_DIR = "/home/runner/.gemini/antigravity-cli/brain/534f7984-7d57-4611-b931-c04a487ae2ed/screenshots";
+const convId = process.env.ANTIGRAVITY_CONVERSATION_ID || "5e140e3e-7557-442a-9933-c19d7de93619";
+const ARTIFACT_DIR = `/home/runner/.gemini/antigravity-cli/brain/${convId}/screenshots`;
 
 fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
 fs.mkdirSync(ARTIFACT_DIR, { recursive: true });

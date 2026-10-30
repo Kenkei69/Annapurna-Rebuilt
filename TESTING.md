@@ -65,13 +65,13 @@ npm test
 
 ---
 
-## Continuous Integration Pipeline (`ci/ci.yml`)
+## Continuous Integration Pipeline (`.github/workflows/ci.yml`)
 
-The repository includes a complete GitHub Actions CI pipeline configuration in `ci/ci.yml` (deployable to `.github/workflows/ci.yml`) running on `ubuntu-latest` with a dedicated PostgreSQL 16 service container:
+The repository includes a complete GitHub Actions CI pipeline configuration in `.github/workflows/ci.yml` running on `ubuntu-latest` with a dedicated PostgreSQL 16 service container:
 1. **Linting & Code Quality:** `npm run lint` (ESLint Next.js core-web-vitals)
 2. **Type Checking:** `npx tsc --noEmit`
 3. **Database Migrations:** `npx prisma migrate deploy`
-4. **Database Seeding & Invariant Verification:** `npm run db:init:essential`
+4. **Database Seeding & Invariant Verification:** `npm run db:init-essential`
 5. **Automated Test Suite:** `npm test` (all 36 unit and integration test assertions)
 6. **Production Build:** `npm run build` (Next.js Turbopack application bundle)
 
@@ -89,13 +89,13 @@ The complete operational lifecycle was verified in `tests/integration/workflow.t
 8. **Partner Bidding:** Competing partners submit offers (Offer 1: ₹18,000; Offer 2: ₹22,000).
 9. **Atomic Acceptance:** Operator accepts Offer 1. PostgreSQL transaction marks Offer 1 `ACCEPTED`, Offer 2 `REJECTED`, and binds `acceptedOfferId`.
 10. **Milestones & Closure:** Partner records dispatch and arrival milestones. Operator records final verification notes. Shipment transitions to `RESCUED`.
-11. **Immutable Audit Verification:** Audit trail records all 5 critical events with actor email, timestamp, and metadata.
-12. **Tenant Boundary Assertion:** Competitor organization is denied access (`ORG_ACCESS_DENIED`).
+11. **Append-Only Audit Verification:** Audit trail records all critical events with actor email, timestamp, and metadata.
+12. **Tenant Boundary Assertion:** Competitor organization is denied access (`ORG_ACCESS_DENIED`), unassigned driver is denied access, and unrelated partner is denied access.
 
 ---
 
 ## Rendered Page Screenshots
-Visual verification was captured across Desktop (1440px) and Mobile (375px) viewports:
+Visual verification was captured across Desktop (1440px) and Mobile (375px) viewports using automated Headless Chromium via Chrome DevTools Protocol (CDP). Note: Rendered screenshots illustrate visual UI presentation and responsive design; behavioral correctness and transactional integrity are established by the automated test suite executing against PostgreSQL:
 - `landing-desktop.png` & `landing-mobile.png`: Public product presentation and demo credentials
 - `login-desktop.png`: Accessible sign-in with one-click demo personas
 - `dashboard-desktop.png` & `dashboard-mobile.png`: Fleet control with live thermal breach banners
