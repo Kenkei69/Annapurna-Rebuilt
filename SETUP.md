@@ -70,7 +70,7 @@ In isolated development environments, seed test personas, vehicles, and initial 
 npm run db:seed
 ```
 
-> **Database Safety Notice:** Destructive reset (`npm run db:reset:demo`) requires `ALLOW_DESTRUCTIVE_RESET=true` and is strictly prohibited in production environments or against remote production hosts. Normal initialization is non-destructive and preserves existing users, shipments, telemetry, and audit history.
+> **Database Safety Notice:** Destructive reset (`npm run db:reset-demo`) requires `ALLOW_DESTRUCTIVE_RESET=true` and is strictly prohibited in production environments or against remote production hosts. Normal initialization is non-destructive and preserves existing users, shipments, telemetry, and audit history.
 
 ### Seed Personas Available:
 | Role | Email | Password | Organization | Description |

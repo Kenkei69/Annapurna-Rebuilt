@@ -89,14 +89,14 @@ Executes real automated headless Chromium interaction via Chrome DevTools Protoc
 
 ---
 
-## Continuous Integration Pipeline (`.github/workflows/ci.yml`)
+## Continuous Integration Pipeline (`ci/ci.yml`)
 
-The repository includes a complete GitHub Actions CI pipeline configuration in `.github/workflows/ci.yml` running on `ubuntu-latest` with a dedicated PostgreSQL 16 service container:
+The repository includes a complete reference CI pipeline workflow in `ci/ci.yml` configured for `ubuntu-latest` with a dedicated PostgreSQL 16 service container:
 1. **Linting & Code Quality:** `npm run lint` (ESLint Next.js core-web-vitals)
 2. **Type Checking:** `npx tsc --noEmit`
 3. **Database Migrations:** `npx prisma migrate deploy`
 4. **Database Seeding & Invariant Verification:** `npm run db:init-essential`
-5. **Automated Test Suite:** `npm test` (all 36 unit and integration test assertions)
+5. **Automated Test Suite:** `npm test` (all 49 unit and integration test assertions)
 6. **Production Build:** `npm run build` (Next.js Turbopack application bundle)
 
 ---
