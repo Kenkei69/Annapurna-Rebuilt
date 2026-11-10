@@ -60,7 +60,7 @@ Provision the initial production administrative user with strong credential poli
 ADMIN_EMAIL="admin@yourdomain.com" ADMIN_PASSWORD="YourStrongPassword123!" npm run db:provision-admin
 ```
 
-> **Safety Notice:** Destructive reset scripts (`npm run db:reset:demo`) are protected by structural `DATABASE_URL` safety verification (`assertSafeForDestructiveReset`). The guard structurally parses hostnames and database names, immediately refusing execution if targeting cloud providers (AWS RDS, Supabase, Neon) or databases not in the explicit disposable whitelist (`annapurna_dev`, `annapurna_test`). Never attempt demo reset in production.
+> **Safety Notice:** Destructive reset scripts (`npm run db:reset-demo`) are protected by structural `DATABASE_URL` safety verification (`assertSafeForDestructiveReset`). The guard structurally parses hostnames and database names, immediately refusing execution if targeting cloud providers (AWS RDS, Supabase, Neon) or databases not in the explicit disposable whitelist (`annapurna_dev`, `annapurna_test`). Never attempt demo reset in production.
 
 ---
 
